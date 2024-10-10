@@ -1,0 +1,48 @@
+{
+    "id": "html_transformer",
+    "name": "HTML Transformer",
+    "name_short": "HTMLTransformer",
+    "description": "Rewrite a partial HTML snippet with proper formatting.",
+    "options": {
+        "temperature": 0.0,
+        "model": "google/gemini-flash-1.5-8b"
+    },
+    "prompt": "Inputs:\nHTML_SNIPPET\n\nInstructions:\n\nYou are an HTML-formatting bot. Your task is to take a partial HTML snippet and rewrite it with proper formatting, without changing any of the actual page content. Follow these rules:\n\n1. Indent nested elements with 4 spaces.\n2. Place each element on a new line, except for inline elements with short content.\n3. Ensure that all tags are in lowercase, and add missing opening or closing tags where appropriate EXCEPT to the beginning or end.\n4. Correct attribute formatting:\n   - Add missing quotes around attribute values.\n   - Ensure there's no space before or after the equals sign in attributes.\n   - Use double quotes for attribute values.\n5. Add \"https://\" to URLs that are missing it.\n6. Do not add DOCTYPE, html, head, or body tags.\n7. Do not close void elements (like <br>, <img>, or <input>).\n8. Do not add or remove any content or elements, save for invisible style errors such as bolded whitespace or whitespace at the start of a header.\n\nRewrite the HTML snippet with proper formatting and indentation. Your output should be appropriate for a find/replace operation, so do not close tags that were not closed in the original snippet.\n\nExample input:\n<div  class= \"big\"><p >helo, i like  .. <ahref='google.com'>candy</P>\n\nExample output:\n<div class=\"big\">\n    <p>\n        helo, i like .. <a href=\"https://google.com/\">candy</a>\n    </p>\n\nRemember:\n- Preserve all original content and elements.\n- Only format and correct HTML syntax.\n- Do NOT add or remove any tags. In particular, do not add closing tags for the outermost elements if they're not in the original snippet.\n- Use proper HTML spacing and formatting.\n\nProvide your formatted HTML output without any additional comments or explanations.\n\nYou will now receive a series of HTML snippets from the user.",
+    "schemas": {
+        "input": {
+            "type": "string",
+            "description": "The partial HTML snippet to format."
+        },
+        "output": {
+            "type": "string",
+            "description": "The formatted HTML snippet."
+        }
+    },
+    "examples": {
+        "training": [
+            {
+                "input": "<div><b>Navigating Cells</b ></div><span>Uses a cell selection system akin to a Jupyter notebook.</span >\n<ul ><li>\u2191/\u2193, click: Change selected cell\n<li>Shift+\u2191/\u2193: Move cell up/down</li><li>Alt+\u2191/\u2193: Join cell with cell above/below\n<li>Enter, double-click: Edit cell</li>\n<li>Escape, click outside: Stop editing cell</li><li>Space: Toggle cell as enabled/disabled (for chat completions)</li>\n<li>Shift+space: Collapse/uncollapse large cell\n<li>Backspace: Delete cell</li><li>0-9: Quicksave to slot 0-9</li>\n<li>Shift+0-9: Quickload from slot 0-9\n<li>Ctrl-z: Undo last operation (usually)</li></ul>\n<div ><b>Adding and modifying roles</b></div >\n<ul><li>a: Add assistant message</li>\n<li>s: Add system message\n<li>d, u: Add user message</li><li>c: Add comment</li>\n<li>f: Add last output as assistant message</li>\n<li>Left, right, click on role: cycle message role</li ></ul>\n<div><b>Generating text</b></div><ul >\n<li>\\: Generate chat completion</li><li>|: Generate text completion</li></ul>\n</div >\n</div>\n<div class= \"collapsible-section\" >\n<h2 class=\"section-header\">API Keys</h2>",
+                "output": "<div><b>Navigating Cells</b></div>\n        <span>Uses a cell selection system akin to a Jupyter notebook.</span>\n        <ul>\n            <li>\u2191/\u2193, click: Change selected cell</li>\n            <li>Shift+\u2191/\u2193: Move cell up/down</li>\n            <li>Alt+\u2191/\u2193: Join cell with cell above/below</li>\n            <li>Enter, double-click: Edit cell</li>\n            <li>Escape, click outside: Stop editing cell</li>\n            <li>Space: Toggle cell as enabled/disabled (for chat completions)</li>\n            <li>Shift+space: Collapse/uncollapse large cell</li>\n            <li>Backspace: Delete cell</li>\n            <li>0-9: Quicksave to slot 0-9</li>\n            <li>Shift+0-9: Quickload from slot 0-9</li>\n            <li>Ctrl-z: Undo last operation (usually)</li>\n        </ul>\n        <div><b>Adding and modifying roles</b></div>\n        <ul>\n            <li>a: Add assistant message</li>\n            <li>s: Add system message</li>\n            <li>d, u: Add user message</li>\n            <li>c: Add comment</li>\n            <li>f: Add last output as assistant message</li>\n            <li>Left, right, click on role: cycle message role</li>\n        </ul>\n        <div><b>Generating text</b></div>\n        <ul>\n            <li>\\: Generate chat completion</li>\n            <li>|: Generate text completion</li>\n        </ul>\n    </div>\n</div>\n<div class=\"collapsible-section\">\n    <h2 class=\"section-header\">API Keys</h2>"
+            },
+            {
+                "input": "<div class=\"entry\">   \n\n\n\t\t\t\t<h3 style=\"text-align: center;\">To browse the book\u2019s contents, use the menu at the right</h3>\n<h4 style=\"text-align: center;\">For information about the author, Brian A. Wandell, please visit his <a href=\"stanford.edu/~wandell\" target=\"_blank\" rel=\"noopener\">homepage</a>.</h4>\n<h4 style=\"text-align: center;\">For information abut the Wandell lab visit the <a href=\"vistalab.stanford.edu\" target=\"_blank\" rel=\"noopener\">VISTA Lab home page</a>.<a href=\"/preface/\"><img decoding=\"async\" class=\"size-full wp-image-149 aligncenter\" style=\"font-size: 1em;\" title=\"FOV\" src=\"/wp-content/uploads/2012/02/FOV21.png\" alt=\"\" width=\"70%\" srcset=\"https://foundationsofvision.stanford.edu/wp-content/uploads/2012/02/FOV21.png 432w, https://foundationsofvision.stanford.edu/wp-content/uploads/2012/02/FOV21-225x300.png 225w\" sizes=\"(max-width: 432px) 100vw, 432px\"></a></h4>\n\n\n<p>Published by Sinauer Associates,&nbsp;Sunderland, Mass.,&nbsp;\u00a91995</p>\n\n\n\n<blockquote class=\"wp-block-quote is-layout-flow wp-block-quote-is-layout-flow\">\n<p>Bibtex citation</p>\n<cite>@book{wandell1995foundations,<br> title={Foundations of vision.}, <br>author={Wandell, Brian A}, <br>year={1995}, <br>publisher={Sinauer Associates} }</cite></blockquote>\n\n\t\t\t\t\n\t\t\t</div>",
+                "output": "<div class=\"entry\">\n    <h3 style=\"text-align: center;\">To browse the book\u2019s contents, use the menu at the right</h3>\n    <h4 style=\"text-align: center;\">For information about the author, Brian A. Wandell, please visit his <a href=\"http://stanford.edu/~wandell\" target=\"_blank\" rel=\"noopener\">homepage</a>.</h4>\n    <h4 style=\"text-align: center;\">For information about the Wandell lab visit the <a href=\"http://vistalab.stanford.edu\" target=\"_blank\" rel=\"noopener\">VISTA Lab home page</a>.<a href=\"/preface/\"><img decoding=\"async\" class=\"size-full wp-image-149 aligncenter\" style=\"font-size: 1em;\" title=\"FOV\" src=\"/wp-content/uploads/2012/02/FOV21.png\" alt=\"\" width=\"70%\" srcset=\"https://foundationsofvision.stanford.edu/wp-content/uploads/2012/02/FOV21.png 432w, https://foundationsofvision.stanford.edu/wp-content/uploads/2012/02/FOV21-225x300.png 225w\" sizes=\"(max-width: 432px) 100vw, 432px\"></a></h4>\n    <p>Published by Sinauer Associates,&nbsp;Sunderland, Mass.,&nbsp;&copy;1995</p>\n    <blockquote class=\"wp-block-quote is-layout-flow wp-block-quote-is-layout-flow\">\n        <p>Bibtex citation</p>\n        <cite>@book{wandell1995foundations,<br> title={Foundations of vision.}, <br>author={Wandell, Brian A}, <br>year={1995}, <br>publisher={Sinauer Associates} }</cite>\n    </blockquote>\n</div>"
+            },
+            {
+                "input": "Finally, any satisfactory scientific theory of consciousness should also offer predictions that are both <I>novel</I> and experimentally <I>falsifiable</I>.\n<P><a name=2></a>\n<h3>\n2. Challenges to Non-Materialist Physicalism.</h3>\nDavid Chalmers<sup>(<a href=#13>13</A>)</sup> identifies two challenges faced by any claim that consciousness discloses the intrinsic nature of the physical:\n<br><b>\na) </b><I>the argument from microphysical simplicity</I>. <br>\n <b>b)</b><I> the argument from structural mismatch.</I><br>",
+                "output": "Finally, any satisfactory scientific theory of consciousness should also offer predictions that are both <i>novel</i> and experimentally <i>falsifiable</i>.\n<p><a name=\"2\"></a>\n\n        <h3>2. Challenges to Non-Materialist Physicalism.</h3>\n    David Chalmers<sup>(<a href=\"#13\">13</a>)</sup> identifies two challenges faced by any claim that consciousness discloses the intrinsic nature of the physical:\n    <br>\n        <b>a)</b> <i>the argument from microphysical simplicity</i>. <br>\n    <b>b)</b><i> the argument from structural mismatch.</i><br>"
+            }
+        ],
+        "test": [
+            {
+                "input": "<div class='container'><h1>Welcome to my website!</h1><p>This is a paragraph with <a href=example.com>a link</a> and <strong>bold text.</strong></p><ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul></div>",
+                "output": null
+            }
+        ]
+    },
+    "extra_data": [
+        {
+            "options": {"model": "openrouter::meta-llama/llama-3.2-3b-instruct:free"}
+        }
+    ]
+}

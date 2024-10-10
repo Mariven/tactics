@@ -1,150 +1,110 @@
 """
-Provides a set of interlacing wrappers for Python's functions and container types:
-CONTAINS:
+Provides a set of interlacing wrappers for Python's functions and container types
+Contains:
     class Null
+    class Void
     class Fail
+    is_list, is_dict, is_tuple, is_set, is_container, is_type
+        (x: Any) -> bool
     class Multi(list)
-        def __init__(self, *args) -> None
-        def __repr__(self) -> str
-        def __str__(self) -> str
-        @staticmethod
-        def is_container(obj: Any) -> bool
-        @staticmethod
-        def walk(obj: Any, path: Optional[list] = None) -> Any
-        @staticmethod
-        def build_skeleton(obj: Any) -> Any
-        @staticmethod
-        def set_nested(obj: Any, path: list, value: Any) -> Any
+        is_container
+            (obj: Any) -> bool
+        walk
+            (obj: Any, path: Optional[list] = None) -> Any
+        build_skeleton
+            (obj: Any) -> Any
+        set_nested
+            (obj: Any, path: list, value: Any) -> Any
     class MetaMeta(type)
-        @classmethod
-        def __new__(cls, name: str, bases: typing_Tuple[type, ...], attrs: typing_Dict[str, Any]) -> type
     class Meta(metaclass=MetaMeta)
-        def __init__(self) -> None
-        def __repr__(self) -> str
-        def __getitem__(self, key: Any) -> Any
-        def __contains__(self, key: Any) -> Any
-        def __instancecheck__(self, instance: Any) -> bool
-        def __subclasscheck__(self, subclass: Any) -> bool
-        def __getattribute__(self, name: str) -> Callable
-        @classmethod
-        def is_meta(cls, obj) -> bool
+        is_meta
+            (cls, obj) -> bool
     class Fun
-        def __init__(self, func, form = None, args = None, **kwargs) -> None
-        def __name__(self) -> str
-        def __doc__(self) -> str
-        def __call__(self, *args, **kwargs) -> Any
-        def __setitem__(self, name: str, value: Any) -> None
-        def __getitem__(self, name: Any) -> Any
-        def __delitem__(self, name) -> None
-        @classmethod
-        def check(obj: Any) -> bool
-        def __mul__(self, other) -> 'Fun'
-        def __rmul__(self, other) -> 'Fun'
-        def __add__(self, other) -> 'Fun'
-        def __matmul__(self, other) -> 'Fun'
-        def __getattr__(self, arg) -> Any
-        def __truediv__(self, other) -> Optional['Fun']
-        def __pow__(self, n: int) -> 'Fun'
-        def __rrshift__(self, x) -> Any:  # stupid chainin
-        @staticmethod
-        def form(ord: str, call: str, fn: Optional[Callable] = None, return_former: bool = False, wrap = False) -> Callable
+        check
+            (cls: Any) -> bool
+        form
+            (ord: str, call: str, fn: Optional[Callable] = None, return_former: bool = False, wrap: bool = False) -> Callable
     class Dict(dict)
-        def __init__(self, items=None) -> None
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source_type: Any, handler: Callable[[Any], core_schema.CoreSchema]) -> core_schema.CoreSchema
-        @classmethod
-        def __getitem__(cls, item: Any = None) -> Any
-        def __getitem__(self, key: Any) -> Any
-        @classmethod
-        def check(cls) -> bool
-        def filter(self, Pred: Callable) -> 'Dict':  # only keeps k such that P(k, self[k]
-        def map(self, f) -> 'Dict':  # applies f to each value in sel
-        def mapKeys(self, f) -> 'Dict':  # applies f to each key in sel
-        def pop(self, key: Any, default: Any = None) -> Any
-        def get(self, key: Any, default: Any = None) -> Any
-        def has(self, key: Any) -> bool
-        def __mul__(self, f) -> 'Dict'
-        def __rmul__(self, f) -> 'Dict'
-        def __sub__(self, minor) -> 'Dict'
-        def __rsub__(self, major) -> 'Dict'
-        def __delitem__(self, key) -> None
-        def __add__(self, other) -> 'Dict'
-        def __radd__(self, other) -> 'Dict'
-        def __or__(self, other) -> 'Dict'
-        def __ror__(self, other) -> 'Dict'
-        def __and__(self, other) -> 'Dict'
-        def __rand__(self, other) -> 'Dict'
-        def keys(self) -> list
-        def values(self) -> list
-        def items(self) -> list
+        check
+            (cls) -> bool
+        filter
+            (self, predicate: Callable) -> Dict
+        map, mapKeys
+            (self, f) -> Dict
+        pop, get
+            (self, key: Any, default: Any = None) -> Any
+        get
+            (self, key: Any, default: Any = None) -> Any
+        keys, values, items
+            (self) -> list
     class List(list)
-        def __init__(self, w=None) -> None
-        def __getattr__(self, attr: str) -> Any
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source_type: Any, handler: Callable[[Any], core_schema.CoreSchema]) -> core_schema.CoreSchema
-        @classmethod
-        def __getitem__(cls, item = None) -> Any
-        def __getitem__(self, idx) -> Any
-        @classmethod
-        def check(obj) -> bool
-        def map(self, f) -> 'List'
-        def filter(self, f) -> 'List'
-        def asyncMap(func: Callable, arr: list, maxWorkers: int = 32) -> 'List'
+        check
+            (cls) -> bool
+        map
+            (self: List[X], f: Callable[[X], Y]) -> List[Y]
+        filter
+            (self: List[T], f: Callable[[T], bool]) -> List[T]
+        asyncMap
+            (func: Callable[[X], Y], arr: List[X], workers: int = 32) -> List[Y]
     class Tuple(list)
-        def __init__(self, items=None) -> None
-        def __getattr__(self, attr: Any) -> Any
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source_type: Any, handler: Callable[[Any], core_schema.CoreSchema]) -> core_schema.CoreSchema
-        @classmethod
-        def __getitem__(cls, item = None) -> Any
-        def __getitem__(self, idx) -> Any
-        @classmethod
-        def check(obj: Any) -> bool
-        def map(self, f) -> 'Tuple'
-        def filter(self, f) -> 'Tuple'
-        def _(x) -> Fun
-    @Fun
-    def map(f, L) -> 'List'
-    @Fun
-    def filter(f, L) -> 'List'
-    @Fun
-    def id(x: Any) -> Any
-    @Fun
-    def comp(*args) -> Fun
-    @Fun
-    def Y(f: Callable) -> Callable
-    @Fun
-    def reduce(opn: Callable, values: Any, base: Any) -> Any
-    @Fun
-    def const(c, x) -> Any
-    @Fun
-    def sub(pattern, oldstr, newstr) -> str
+        check
+            (cls: Any) -> bool
+        map, filter
+            (self, f) -> Tuple
+    map, filter
+        (f, L) -> List
+    id
+        (x: Any) -> Any
+    comp
+        (*args) -> Fun
+    reduce
+        (opn: Callable, values: Any, base: Any) -> Any
+    const
+        (c, x) -> Any
+    sub
+        (pattern, oldstr, newstr) -> str
     Fun read, readlines, nonempty, match, split, strip, select, get, cmd, prnt
 """
+from __future__ import annotations
 
-import re
-from inspect import signature as inspect_signature
-from subprocess import run as subprocess_run
-from typing import List as typing_List, Dict as typing_Dict, Tuple as typing_Tuple, Set as typing_Set
-from typing import Callable, Any, Optional, TypeVar, Union, Iterator, get_args, get_origin, get_type_hints
-from collections.abc import Hashable
-from pydantic_core import core_schema
 import builtins
-from concurrent.futures import ThreadPoolExecutor
-from itertools import chain as itertools_chain, product as itertools_product
+import inspect
+import logging
+import re
+from collections.abc import Hashable, Iterable, Generator, Callable
+from enum import Enum
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import singledispatch, singledispatchmethod, update_wrapper
 from functools import wraps as functools_wraps
+from inspect import signature as inspect_signature
+from itertools import chain as itertools_chain, product as itertools_product
 from operator import itemgetter as operator_itemgetter
+from pydantic_core import core_schema
+from subprocess import run as subprocess_run
+from types import MemberDescriptorType
+from typing import List as typing_List, Dict as typing_Dict, Tuple as typing_Tuple, Set as typing_Set
+from typing import Any, Optional, TypeVar, Union, get_args, get_origin, get_type_hints
 
-#
-# Should look at
-# 	https://boltons.readthedocs.io/en/latest/
-# 	for inspiration
-# As well as
-# 	https://github.com/jab/bidict
+# Should look at https://boltons.readthedocs.io/en/latest/ and https://github.com/jab/bidict
+
+T, X, Y = TypeVar('T'), TypeVar('X'), TypeVar('Y')
+End = Callable[[T], T]
+Hom = Callable[[X], Y]
+F = TypeVar('F', bound=Callable[..., Any])
+Decorator = End[F]
 
 class Null:
     """
-    A null object.
+    A null object. Methods are to treat it as though it wasn't there.
+    Semantically, 
+        - {"a": None} is a dictionary with a value None, while {"a": Null} is empty.
+        - add(3, None) should raise an error b/c you can't add 3 and None, while add(3, Null) should raise an error b/c add takes two arguments.
+    """
+    pass
+
+class Void:
+    """
+    A void object.
     """
     pass
 
@@ -153,6 +113,24 @@ class Fail:
     A failure object.
     """
     pass
+
+def is_list(x: Any) -> bool:
+    return isinstance(x, (list, List, typing_List))
+
+def is_dict(x: Any) -> bool:
+    return isinstance(x, (dict, Dict, typing_Dict))
+
+def is_tuple(x: Any) -> bool:
+    return isinstance(x, (tuple, Tuple, typing_Tuple))
+
+def is_set(x: Any) -> bool:
+    return isinstance(x, (set, typing_Set))
+
+def is_container(x: Any) -> bool:
+    return is_list(x) or is_dict(x) or is_tuple(x) or is_set(x)
+
+def is_type(x: Any) -> bool:
+    return isinstance(x, type)
 
 class Multi(list):
     """
@@ -178,26 +156,19 @@ class Multi(list):
     def is_container(obj: Any) -> bool:
         """
         Checks if the given object is a container type.
-        Args:
-            obj: The object to check.
-        Returns:
-            True if the object is a container type, False otherwise.
+        :param obj: The object to check.
+        :returns: True if the object is a container type, False otherwise.
         """
         return isinstance(obj, (Multi, typing_List, typing_Dict, typing_Tuple, list, dict, tuple, set))
 
     @staticmethod
-    def walk(obj: Any, path: Optional[list] = None) -> Any:
+    def walk(obj: Any, path: List = []) -> Any:
         """
-        Recursively traverses the given object, yielding the path and value of each element.
-        Args:
-            obj: The object to traverse.
-            path: The current path (optional).
-        Yields:
-            A tuple containing the path and value of each element.
+        Recursively traverses the given object, yielding the path and value of each element.        
+        :param obj: The object to traverse.
+        :param path: The current path (optional).
+        :yields: A tuple containing the path and value of each element.
         """
-        if path is None:
-            path = []
-
         if isinstance(obj, Multi):
             for i, item in enumerate(obj):
                 yield from Multi.walk(item, [*path, (i, obj)])
@@ -215,44 +186,65 @@ class Multi(list):
     def build_skeleton(obj: Any) -> Any:
         """
         Recursively builds a skeleton of the given object, replacing non-container values with None.
-        Args:
-            obj: The object to build a skeleton for.
-        Returns:
-            The skeleton of the given object.
+        :param obj: The object to build a skeleton for.
+        :returns: The skeleton of the given object.
         """
-        if isinstance(obj, Multi):
-            return Multi(*[Multi.build_skeleton(item) for item in obj])
-        if Multi.is_container(obj):
-            if isinstance(obj, (typing_Dict, dict)):
-                return type(obj)({k: Multi.build_skeleton(v) for k, v in obj.items()})
-            if isinstance(obj, (typing_List, list, typing_Tuple, tuple)):
-                return type(obj)(Multi.build_skeleton(item) for item in obj)
-            if isinstance(obj, set):
-                return set()
-        return None
+        return build_skeleton(obj)
 
-    @staticmethod
-    def set_nested(obj: Any, path: list, value: Any) -> Any:
-        """
-        Sets the value at the given path in the object.
+def register_all(types: Tuple) -> Decorator:
+    def wrapper(func):
+        dispatcher = singledispatch(func)
+        for t in types:
+            dispatcher.register(t)(func)
+        update_wrapper(dispatcher, func)
+        return dispatcher
+    return wrapper
 
-        Args:
-            obj: The object to modify.
-            path: The path to the value to set.
-            value: The new value to set.
 
-        Returns:
-            The modified object.
-        """
-        for key, container in reversed(path):
-            if isinstance(container, (typing_Dict, dict)):
-                container[key] = value
-            elif isinstance(container, (typing_List, list, typing_Tuple, tuple, Multi)):
-                if isinstance(container, (typing_Tuple, tuple)):
-                    container = list(container)
-                container[key] = value
-            value = container
-        return value
+@singledispatch
+def build_skeleton(obj: Any) -> Any:
+    """Base case for non-container types."""
+    return None
+
+@register_all((Multi, dict, list, tuple, set))
+def build_skeleton(obj: Any) -> Any:
+    if isinstance(obj, Multi):
+        return Multi(*[build_skeleton(item) for item in obj])
+    elif isinstance(obj, (dict, typing_Dict)):
+        return type(obj)({k: build_skeleton(v) for k, v in obj.items()})
+    elif isinstance(obj, (list, typing_List, tuple, typing_Tuple)):
+        return type(obj)(build_skeleton(item) for item in obj)
+    elif isinstance(obj, (set, typing_Set)):
+        return set()  # Always return a regular set for the skeleton
+    return None # Should never reach here with registered types
+
+
+Multi.build_skeleton = staticmethod(build_skeleton)
+
+
+
+@singledispatch
+def set_nested(obj: Any, path: list, value: Any) -> Any:
+    raise TypeError("Object is not a supported container type")
+
+@register_all((dict, list, Multi))
+def _(obj: Any, path: list, value: Any) -> Any:
+    for key, _ in reversed(path):
+        obj[key] = value
+        value = obj
+    return value
+
+@register_all((tuple,))
+def _(obj: Any, path: list, value: Any) -> Any:
+    obj = list(obj)
+    for key, _ in reversed(path):
+        obj[key] = value
+        value = obj
+    return obj
+
+
+Multi.set_nested = staticmethod(set_nested)
+
 
 class MetaMeta(type):
     '''
@@ -304,7 +296,7 @@ class Meta(metaclass=MetaMeta):
     def __subclasscheck__(self, subclass: Any) -> bool:
         return issubclass(subclass, Meta)
 
-    def __getattribute__(self, name: str) -> Callable:
+    def __getattribute__(self, name: str) -> Any:
         if name == '_is_meta':
             return True
         if name.startswith('__') and name.endswith('__'):
@@ -512,9 +504,17 @@ class Fun:
         return self * x if isinstance(x, Fun) else self(x)
 
     @staticmethod
-    def form(ord: str, call: str, fn: Optional[Callable] = None, return_former: bool = False, wrap = False) -> Callable:
+    def form(ord: str, call: str, fn: Optional[Callable] = None, return_former: bool = False, wrap: bool = False) -> Callable:
         """
-        variadic combinator constructor with generalized notation:
+        Utility for variadic combinator constructor with generalized notation.
+        :param ord: The order of the arguments in the function signature.
+        :param call: The order of the arguments in the function call.
+        :param fn: The function to wrap.
+        :param return_former: Whether to return the higher-order forming function rather than the function it wraps.
+        :param wrap: Whether to wrap the function in a Fun object.
+        :returns: The wrapped function.
+        """
+        """
         - spacing denotes separation of composition, i.e. currying
             - ex. ord = 0 1 creates the function g(a)(b) := call[f]
             - while ord = 01 creates g($0, $1) := call[f]
@@ -609,7 +609,7 @@ class Dict(dict):
         if items is None:
             items = {}
         for k, v in items.items():
-            if type(v) in {list, tuple, dict}:
+            if isinstance(v, (list, tuple, dict)) and not isinstance(v, (List, Tuple, Dict)):
                 items[k] = ({dict: Dict, tuple: Tuple, list: List}[type(v)])(v)
         super(Dict, self).__init__(items)
         self.__dict__ = items
@@ -627,51 +627,46 @@ class Dict(dict):
             return typing_Dict[cls]
         return typing_Dict[cls, item]
 
+    @singledispatchmethod
     def __getitem__(self, key: Any) -> Any:
-        if key is None:
-            return self
-        if type(key) in {list, tuple, dict}:
-            key = ({dict: Dict, tuple: Tuple, list: List}[type(key)])(key)
-        # since dicts and lists can't be keys, we can overload this
-        # if D = {'co':9, 'ab': {'om': {'a':1, 'z':26}, 'du':'ff'},'ip':3}, then
-        # D['ip'] should yield 3
-        # D[['ip', 'co']] should yield {'ip':3, 'co':9}
-        # D[{'ab': {'du':'ee', 'om':['b', 'z']}}] should yield {'ab': {'ee':'ff', 'om':{'z':26}}}
-        # this way, we can do key renaming, value selection, and key filtering all at once, and recursively
-        if isinstance(key, List):
-            # return Dict({k: self[k] for k in key if self[k] != None})
-            return List([self[k] for k in key])
-        if isinstance(key, Tuple):
-            # return List([self[k] for k in key])
-            if len(key) == 1:
-                return [self, self[key.head]][len(key)]
-            # return None early to prevent attempting to call None[key.tail]
-            return None if (key.head not in self or self[key.head] is None) else self[key.head][key.tail]
-        if type(key) in {dict, Dict}:
-            new_obj = Dict({})
-            for k in key:
-                keyHashable, keyContainer = isinstance(key[k], Hashable), isinstance(key[k], (Dict, Tuple))
-                selfHashable, selfContainer = isinstance(self[k], Hashable), isinstance(self[k], (Dict, Tuple))
-                if k not in self.keys():
-                    continue
-                if keyHashable:
-                    new_obj[key[k]] = self[k]
-                else:
-                    new_obj[k] = self[k][key[k]] if (selfContainer or keyContainer) else self[k]
-            return new_obj
         return super(Dict, self).get(key, None)
+
+    @__getitem__.register(list)
+    def _(self, key: typing_List) -> typing_List:
+        return List([self[k] for k in key])
+
+    @__getitem__.register(tuple)
+    def _(self, key: typing_Tuple) -> Any:
+        if len(key) == 1:
+            return self[key[0]]
+        return None if (key[0] not in self or self[key[0]] is None) else self[key[0]][key[1:]]
+
+    @__getitem__.register(dict)
+    def _(self, key: dict) -> Dict:
+        new_obj = Dict()
+        for k, v in key.items():
+            keyHashable, keyContainer = isinstance(v, Hashable), isinstance(v, (Dict, Tuple))
+            selfHashable, selfContainer = isinstance(self[k], Hashable), isinstance(self[k], (Dict, Tuple))
+            if keyHashable and k in self:
+                new_obj[v] = self[k]
+            elif k in self:
+                new_obj[k] = self[k][v] if (selfContainer or keyContainer) else self[k]
+        return new_obj
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(dict, attr)
 
     @classmethod
     def check(cls) -> bool:
         return (isinstance(cls, (Dict, dict)))
 
-    def filter(self, Pred: Callable) -> 'Dict':  # only keeps k such that P(k, self[k])
+    def filter(self, predicate: Callable[..., bool]) -> 'Dict':  # only keeps k such that P(k, self[k])
         if len(self) == 0:
-            return Dict({})
+            return Dict()
         # figure out arity of P
-        if (Pred.__code__.co_argcount) == 1:
-            return Dict({k: v for k, v in self.items() if Pred(k)})
-        return Dict({k: v for k, v in self.items() if Pred(k, v)})
+        if (predicate.__code__.co_argcount) == 1:
+            return Dict({k: v for k, v in self.items() if predicate(k)})
+        return Dict({k: v for k, v in self.items() if predicate(k, v)})
 
     def map(self, f) -> 'Dict':  # applies f to each value in self
         return Dict({k: f(v) for k, v in self.items()})
@@ -705,12 +700,12 @@ class Dict(dict):
     # general idea being: f * D applies f to keys, D * f applies f to values
     def __sub__(self, minor) -> 'Dict':
         # D - E removes all keys in E from D
-        if type(minor) in {list, List, dict, Dict}:
+        if isinstance(minor, (list, List, dict, Dict)):
             return Dict({k: v for k, v in self.items() if k not in minor})
         return Dict({k: v for k, v in self.items() if k != minor})
 
     def __rsub__(self, major) -> 'Dict':
-        if type(major) not in {dict, Dict}:
+        if not isinstance(major, (dict, Dict)):
             raise ValueError("Can't subtract a dictionary from a non-dictionary")
         return Dict({k: v for k, v in major.items() if k not in self})
 
@@ -752,7 +747,7 @@ class List(list):
         if w is None:
             w = []
         for i, v in enumerate(w):
-            if type(v) in {list, tuple, dict}:
+            if isinstance(v, (list, tuple, dict)) and not isinstance(v, (List, Tuple, Dict)):
                 w[i] = ({dict: Dict, tuple: Tuple, list: List}[type(v)])(v)
         super(List, self).__init__(w)
 
@@ -778,19 +773,29 @@ class List(list):
             return typing_List[cls]
         return typing_List[cls, item]
 
+    @singledispatchmethod
     def __getitem__(self, idx) -> Any:
-        if idx is None:
-            return self
-        # if idx is a tuple, nest the indexing
-        if isinstance(idx, (tuple, Tuple)):
-            short_circuit = [self, self[idx[0]]]
-            return short_circuit[len(idx)] if len(idx) < len(short_circuit) else self[idx[0]][Tuple(idx[1:])]
-        # if idx is a function, filter the list
-        if isinstance(idx, Callable):
-            return List([obj for obj in self if idx(obj)])
-        if not isinstance(idx, (int, slice)):
-            return List([obj[idx] for obj in self])
         return super(List, self).__getitem__(idx)
+
+    @__getitem__.register(type(None))
+    def _(self, idx) -> Any:
+        return self
+
+    @__getitem__.register(tuple)
+    def _(self, idx) -> Any:
+        if len(idx) == 0:
+            return self
+        if len(idx) == 1:
+            return self[idx[0]]
+        return self[idx[0]][Tuple(idx[1:])]
+
+    @__getitem__.register(Callable)
+    def _(self, idx) -> Any:
+        return List([obj for obj in self if idx(obj)])
+
+    @__getitem__.register(list)
+    def _(self, idx) -> Any:
+        return List([obj[idx] for obj in self])
 
     @classmethod
     def check(cls) -> bool:
@@ -803,8 +808,8 @@ class List(list):
         return List(list(filter(f, self)))
 
     @staticmethod
-    def asyncMap(func: Callable, arr: list, maxWorkers: int = 32) -> 'List':
-        with ThreadPoolExecutor(max_workers=maxWorkers) as executor:
+    def asyncMap(func: Callable, arr: list, workers: int = 32) -> 'List':
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             return List(executor.map(func, arr))
 
 class Tuple(list):
@@ -817,7 +822,7 @@ class Tuple(list):
         if not isinstance(items, list):
             items = list(items)
         for i, v in enumerate(items):
-            if type(v) in {list, tuple, dict}:
+            if isinstance(v, (list, tuple, dict))  and not isinstance(v, (List, Tuple, Dict)):
                 items[i] = ({list: List, tuple: Tuple, dict: Dict}[type(v)])(v)
         super(Tuple, self).__init__(items)
 
@@ -846,7 +851,7 @@ class Tuple(list):
     def __getitem__(self, idx) -> Any:
         if idx is None:
             return self
-        if type(idx) in {tuple, Tuple}:
+        if isinstance(idx, (tuple, Tuple)):
             if len(idx) == 0:
                 return self
             if len(idx) == 1:
@@ -856,7 +861,7 @@ class Tuple(list):
 
     @classmethod
     def check(cls: Any) -> bool:
-        return isinstance(cls, (list, tuple, Tuple))
+        return isinstance(cls, (tuple, Tuple))
 
     def map(self, f) -> 'Tuple':
         return Tuple(list(map(f, self)))
@@ -864,21 +869,36 @@ class Tuple(list):
     def filter(self, f) -> 'Tuple':
         return Tuple(list(filter(f, self)))
 
-@Fun
-def map(f, L) -> 'List':
-    """Applies f to each element in L"""
-    return List([f(i) for i in L])
-@Fun
-def filter(f, L) -> 'List':
-    """Filters elements in L based on f"""
-    return List([i for i in L if f(i)])
+def super_func(func: Callable) -> Callable:
+    if isinstance(func, Fun):
+        func = func.func
+    @functools_wraps(func)
+    def wrapper(*args, **kwargs):
+        output = func(*args, **kwargs)
+        for pair in [(list, List), (tuple, Tuple), (dict, Dict)]:
+            if isinstance(output, pair[0]) and not isinstance(output, pair[1]):
+                return pair[1](output)
+        return output
+    return Fun(wrapper)
 
-@Fun
-def id(x: Any) -> Any:
+def non_super_func(func: Callable[[X], Y]) -> Callable[[X], Y]: # for clarity
+    return func
+
+@super_func
+def map(f: Callable[[X], Y], L: List[X]) -> List[Y]:
+    """Applies f to each element in L"""
+    return [f(i) for i in L]
+@super_func
+def filter(f: Callable[[T], bool], L: List[T]) -> List[T]:
+    """Filters elements in L based on f"""
+    return [i for i in L if f(i)]
+
+@non_super_func
+def id(x: T) -> T:
     """Identity function"""
     return x
 
-@Fun
+@super_func
 def comp(*args) -> Fun:
     """Function composition"""
     def _(x) -> Fun:
@@ -888,13 +908,8 @@ def comp(*args) -> Fun:
         return comp(*args[1:])(args[0](x))
     return _
 
-@Fun
-def Y(f: Callable) -> Callable:
-    """Y-combinator"""
-    return f(f)
-
-@Fun
-def reduce(opn: Callable, values: Any, base: Any) -> Any:
+@super_func
+def reduce(opn: Callable[[T, T], T], values: List[T], base: T) -> T:
     """Reduces a list of values using a binary operator"""
     if len(values) == 0:
         return base
@@ -902,38 +917,38 @@ def reduce(opn: Callable, values: Any, base: Any) -> Any:
         return values[0]
     return opn(values[0], reduce(opn, values[1:], base))
 
-@Fun
-def const(c, x) -> Any:
+@super_func
+def const(c: T, x: Any) -> T:
     """Constant function that always returns c"""
     return c
 
-@Fun
+@super_func
 def sub(pattern, oldstr, newstr) -> str:
     """Replaces occurrences of pattern in oldstr with newstr"""
     return re.sub(pattern, newstr, oldstr)
 
 # not going to remember which way it goes, so may as well make it symmetrical
-@Fun
+@super_func
 def join(x, y) -> Any:
     if isinstance(x, str) and isinstance(y, (list, List, tuple, Tuple)):
         return x.join(y)
     return y.join(x)
 
-@Fun
+@super_func
 def _read(fp: str) -> str:
     with open(fp) as f:
         return f.read()
 
-@Fun
+@super_func
 def _readlines(fp: str) -> List:
     with open(fp) as f:
         return List(f.readlines())
 
 read, readlines = _read, _readlines
 
-@Fun
+@super_func
 def nonempty(f: Callable, L: List) -> List:
-    return List([f(y) for y in L if f(y)])
+    return [f(y) for y in L if f(y)]
 
 select = Fun(lambda *args: Fun(lambda L: (lambda a, b, c: L[a:b:c])(*(slice(*args).indices(len(L))))))  # select(a)(L) = L[:a]; select(b,c)(L) = L[b:c]
 match = Fun(re.match) / Dict({'groups': lambda: (3,)})

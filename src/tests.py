@@ -78,3 +78,32 @@ f(1, _custom_param="base", _ignore="left")
 	# west_factory(strict=True, ignore=left)
 	# east_factory(strict=True)
 	# f(1, base)
+
+# Caching
+
+@jsonl_cache('data/caches/tests.jsonl', ttl=100)
+def expensive_function(x: int, y: int, func: Callable[[int], int]) -> int:
+    """This is an expensive function that takes another function as an argument."""
+    # Simulate an expensive operation
+    time_sleep(5)
+    return func(x + y)
+
+@jsonl_cache('data/caches/tests.jsonl', ttl=5, allow_initialize=True)
+def square(n: int) -> int:
+    """Square the input."""
+    return n * n
+
+expensive_function(5, 10, id)
+
+
+
+@router
+def spline(x: float, coords: List[Tuple[int, int]], extra: str) -> Any:
+	print(f"x: {x}, coords: {coords}, extra: {extra}")
+
+# Test cases
+spline(9.4, [(0, 0)], 'a')  # Should work normally
+spline([(0, 0)], 9.4, 'b')  # Should route arguments correctly
+spline('c', x=9.4, coords=[(0, 0)])  # Should work with explicit naming
+spline('d', 9.4, coords=[(0, 0)])  # Should work with partial explicit naming
+spline('e', [(0, 0)], x=9.4)  # Should work with mixed routing and explicit naming

@@ -1,0 +1,2 @@
+{"id": "261dc9d8", "function": "expensive_function#7ec2762", "input": {"args": [5, 9, "id#cd3a1048"], "kwargs": {}}, "output": 14, "created": 1728395565, "expires": 1728395665}
+{"id": "a4a9da23", "function": "expensive_function#7ec2762", "input": {"args": [5, 10, "id#cd3a1048"], "kwargs": {}}, "output": 15, "created": 1728395582, "expires": 1728395682}

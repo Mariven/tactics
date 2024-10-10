@@ -262,6 +262,36 @@
 					"short": "Gemini Pro 1.5 (OR)"
 				},
 				{
+					"id": "google/gemini-flash-1.5-8b",
+					"mode": "chat",
+					"capacity": {
+						"input": 1000000,
+						"output": 8192
+					},
+					"cost": {
+						"input": 0.0375,
+						"output": 0.15,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Gemini Flash 1.5 8B (OR)"
+				},
+				{
+					"id": "qwen/qwen-2.5-72b-instruct",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 32000
+					},
+					"cost": {
+						"input": 0.35,
+						"output": 0.40,
+						"cached": 0.00
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools","tool_choice","frequency_penalty","presence_penalty","repetition_penalty","top_k"],
+					"short": "Qwen 2.5 72B Inst (OR)"
+				},
+				{
 					"id": "mistralai/mistral-large",
 					"mode": "chat",
 					"capacity": {
@@ -335,6 +365,81 @@
 					},
 					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
 					"short": "Llama 3.2V 11B Inst (OR)"
+				},
+				{
+					"id": "meta-llama/llama-3.2-11b-vision-instruct:free",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 4096
+					},
+					"cost": {
+						"input": 0.0,
+						"output": 0.0,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Llama 3.2V 11B Inst Free (OR)"
+				},
+				{
+					"id": "meta-llama/llama-3.2-3b-instruct",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 4096
+					},
+					"cost": {
+						"input": 0.05,
+						"output": 0.03,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Llama 3.2 3B Inst (OR)"
+				},
+				{
+					"id": "meta-llama/llama-3.2-1b-instruct",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 4096
+					},
+					"cost": {
+						"input": 0.02,
+						"output": 0.01,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Llama 3.2 1B Inst (OR)"
+				},
+				{
+					"id": "meta-llama/llama-3.2-3b-instruct:free",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 4096
+					},
+					"cost": {
+						"input": 0.00,
+						"output": 0.00,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Llama 3.2 3B Inst Free (OR)"
+				},
+				{
+					"id": "meta-llama/llama-3.2-1b-instruct:free",
+					"mode": "chat",
+					"capacity": {
+						"input": 131072,
+						"output": 4096
+					},
+					"cost": {
+						"input": 0.00,
+						"output": 0.00,
+						"cached": 0.0
+					},
+					"parameters": ["messages","temperature","top_p","max_tokens","stop","response_format","tools"],
+					"short": "Llama 3.2 1B Inst Free (OR)"
 				},
 				{
 					"id": "meta-llama/llama-3.1-70b-instruct",

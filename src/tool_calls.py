@@ -4,13 +4,16 @@ Tools and utilities for handling tools
 from __future__ import annotations
 
 from .utilities import *
-from .supertypes import *
 
+import ast
+import inspect
+import os
+import re
+import requests
 from exa_py.api import Exa
 from openai import OpenAI
-from subprocess import Popen as subprocess_Popen, PIPE as subprocess_PIPE, run as subprocess_run
-import re, inspect, requests, ast, os
 from PIL import Image, PngImagePlugin
+from subprocess import Popen as subprocess_Popen, PIPE as subprocess_PIPE, run as subprocess_run
 
 tool_ids = ["google-search", "google-cx-id", "exa", "jina"]
 
@@ -47,7 +50,6 @@ class Tool:
     def __init__(self, tool_file_or_function: Optional[Any] = None, load_passive: bool = False) -> None:
         """
         Initialize a Tool object.
-
         :param tool_file_or_function: Either a file path (str) or a callable function.
         :param load_passive: If True, don't automatically load the tool file.
         """
@@ -78,6 +80,13 @@ class Tool:
                 print(f'Warning: could not get schema for tool function {self.func.__name__}')
 
     def save_png(self, image_file: str, tool_file: Optional[str] = None) -> str:
+        """
+        Save the tool function as a PNG file with embedded schema and source code.
+        :param image_file: The path of the image file to save.
+        :param tool_file: Optional file path to save the tool to. If None, uses self.tool_file.
+        :returns: The path of the saved tool file.
+        :raises Exception: If no tool file is specified or if the image file is not a PNG.
+        """
         if tool_file is None:
             if self.tool_file is None:
                 raise Exception("Tool file to save to not specified")
@@ -111,9 +120,8 @@ class Tool:
     def save_py(self, tool_file: Optional[str] = None) -> str:
         """
         Save the tool function as a Python file.
-
         :param tool_file: Optional file path to save to. If None, uses self.tool_file.
-        :return: The path of the saved file.
+        :returns: The path of the saved file.
         :raises Exception: If no tool file is specified or if the function is not found.
         """
         if tool_file is None:
@@ -131,6 +139,12 @@ class Tool:
         return tool_file
 
     def load_png(self, tool_file: Optional[str] = None) -> Tool:
+        """
+        Load a tool function from a PNG file.
+        :param tool_file: Optional file path to load from. If None, uses self.tool_file.
+        :returns: The Tool instance.
+        :raises Exception: If no tool file is specified or if schema retrieval fails.
+        """
         if tool_file is None:
             if self.tool_file is None:
                 raise Exception("Tool file to load from not specified")
@@ -163,9 +177,8 @@ class Tool:
     def load_py(self, tool_file: Optional[str] = None) -> Tool:
         """
         Load a tool function from a Python file.
-
         :param tool_file: Optional file path to load from. If None, uses self.tool_file.
-        :return: The Tool instance.
+        :returns: The Tool instance.
         :raises Exception: If no tool file is specified or if schema retrieval fails.
         """
         if tool_file is None:
@@ -352,7 +365,7 @@ class Tool:
 
         :param args: Positional arguments to pass to the function.
         :param kwargs: Keyword arguments to pass to the function.
-        :return: The result of calling the function.
+        :returns: The result of calling the function.
         :raises Exception: If the tool is empty.
         """
         if self.empty:
@@ -363,7 +376,7 @@ class Tool:
         """
         Generate a description of the tool based on its schema.
 
-        :return: A string description of the tool, or None if no schema is available.
+        :returns: A string description of the tool, or None if no schema is available.
         """
         if not self.schema:
             return None
@@ -480,7 +493,7 @@ class Toolbox:
         Get a tool from the Toolbox by its name.
 
         :param tool_name: The name of the tool to retrieve.
-        :return: The Tool object if found, None otherwise.
+        :returns: The Tool object if found, None otherwise.
         """
         return self.tool_dict.get(tool_name, None)
 
@@ -488,7 +501,7 @@ class Toolbox:
         """
         Get a description of all tools in the Toolbox.
 
-        :return: A string containing descriptions of all tools.
+        :returns: A string containing descriptions of all tools.
         """
         return "\n".join([tool.describe() for tool in self.tools])
 
@@ -499,7 +512,7 @@ class Toolbox:
         :param tool_name: The name of the tool to call.
         :param args: Positional arguments to pass to the tool.
         :param kwargs: Keyword arguments to pass to the tool.
-        :return: The result of calling the tool.
+        :returns: The result of calling the tool.
         :raises Exception: If the tool is not found in the Toolbox.
         """
         tool = self.get_tool(tool_name)
@@ -513,7 +526,7 @@ class Toolbox:
         Get a tool from the Toolbox using square bracket notation.
 
         :param tool_name: The name of the tool to retrieve.
-        :return: The Tool object.
+        :returns: The Tool object.
         :raises KeyError: If the tool is not found in the Toolbox.
         """
         tool = self.get_tool(tool_name)
@@ -527,7 +540,7 @@ class Toolbox:
         Check if a tool is in the Toolbox.
 
         :param tool_name: The name of the tool to check.
-        :return: True if the tool is in the Toolbox, False otherwise.
+        :returns: True if the tool is in the Toolbox, False otherwise.
         """
         return tool_name in self.tool_dict
 
@@ -535,7 +548,7 @@ class Toolbox:
         """
         Get an iterator over the tools in the Toolbox.
 
-        :return: An iterator over the Tool objects.
+        :returns: An iterator over the Tool objects.
         """
         return iter(self.tools)
 
@@ -543,7 +556,7 @@ class Toolbox:
         """
         Get the number of tools in the Toolbox.
 
-        :return: The number of tools.
+        :returns: The number of tools.
         """
         return len(self.tools)
 
@@ -551,7 +564,7 @@ class Toolbox:
         """
         Get a string representation of the Toolbox.
 
-        :return: A string representation of the Toolbox.
+        :returns: A string representation of the Toolbox.
         """
         return f"Toolbox({', '.join([tool.schema['function']['name'] for tool in self.tools])})"
 

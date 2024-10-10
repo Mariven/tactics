@@ -4,13 +4,11 @@ Methods for text and chat completions, and agent wrapper classes
 from __future__ import annotations
 
 from .tool_calls import *
-from .utilities import *
-from .supertypes import *
 
 from datetime import datetime as datetime_datetime
+from time import time as time_time, sleep as time_sleep
+from os import path as os_path
 from tiktoken import get_encoding
-from enum import Enum
-
 
 separator = "::"
 
@@ -276,7 +274,7 @@ def chat_completion(messages: str | List[Dict[str, str]], options: Dict) -> Any:
     :param options: Extra arguments to be provided.
     :returns: The generated chat completion.
     """
-    params = {"mode": "chat", "messages": messages, "model": "openrouter:anthropic/claude-3.5-sonnet", "temperature": 1.0, "top_p": 1.0, "max_tokens": 4096, "yield_output": True, "return_output": True} | options
+    params = {"mode": "chat", "messages": messages, "model": "openrouter" + separator + "gpt-4o", "temperature": 1.0, "top_p": 1.0, "max_tokens": 4096, "yield_output": True, "return_output": True} | options
     # "tools": None,"tool_choice":None,"parallel_tool_calls":None,"response_format":None
     if 'prompt' in params:
         del params['prompt']
@@ -587,7 +585,7 @@ class StatefulChat(History, Entity):
         return self.message_history[-1]
 
     @property
-    def messages(self) -> list:
+    def messages(self) -> List[Dict[str, str]]:
         return self.message_history
 
     def undo(self, n=1) -> StatefulChat:
@@ -599,7 +597,7 @@ class StatefulChat(History, Entity):
     def redo(self) -> StatefulChat:
         pass
 
-    def save(self, path) -> StatefulChat:
+    def save(self, path: str) -> StatefulChat:
         with open(path, 'w') as f:
             json_dump({
                     'message_history': self.message_history,
@@ -617,7 +615,7 @@ class StatefulChat(History, Entity):
                 'stateParams': self.stateParams,
             })
 
-    def load(self, path) -> StatefulChat:
+    def load(self, path: str) -> StatefulChat:
         with open(path) as f:
             data = json_load(f)
             self.message_history = data['message_history']
@@ -626,7 +624,7 @@ class StatefulChat(History, Entity):
             self.stateParams = data['stateParams']
             return self
 
-    def load_string(self, s) -> StatefulChat:
+    def load_string(self, s: str) -> StatefulChat:
         data = json_loads(s)
         self.message_history = data['message_history']
         self.apiParams = data['apiParams']
@@ -645,27 +643,27 @@ class StatefulChat(History, Entity):
             new[k] = v
         return new
 
-    def addMessage(self, role, content, **kwargs) -> StatefulChat:
+    def addMessage(self, role: str, content: str, **kwargs) -> StatefulChat:
         self.message_history.append({'role': role, 'content': content} | kwargs)
         return self
 
-    def system(self, content, echo: bool = False) -> StatefulChat:
+    def system(self, content: str, echo: bool = False) -> StatefulChat:
         if self.get_state("echo") or echo:
             print('<system>', content)
         return self.addMessage('system', content)
 
-    def assistant(self, content, echo: bool = False) -> StatefulChat:
+    def assistant(self, content: str, echo: bool = False) -> StatefulChat:
         if self.get_state("echo") or echo:
             print('<assistant>', content)
         return self.addMessage(
             'assistant', content)  # can add prefix = True for some models
 
-    def user(self, content, echo=False) -> StatefulChat:
+    def user(self, content: str, echo: bool = False) -> StatefulChat:
         if self.get_state("echo") or echo:
             print('<user>', content)
         return self.addMessage('user', content)
 
-    def tool(self, content, name, tool_call_id) -> StatefulChat:
+    def tool(self, content: str, name: str, tool_call_id: str) -> StatefulChat:
         return self.addMessage('tool', content, name=name, tool_call_id=tool_call_id)
 
     def next(self, **kwargs) -> StatefulChat:

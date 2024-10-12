@@ -49,7 +49,8 @@ def pipe_factory(
                 {"role": "user", "content": query},
                 {"role": "assistant", "content": answer}
             ))
-        @freeze_args(view=lambda x: None)(show_call)
+
+        @freeze_args(view=lambda _: None)(show_call)
         @distribute(after=lambda **obj: (obj["order"], obj["value"]), threads=25)
         def pipe(
                 query: str,
@@ -75,7 +76,7 @@ def load_pipe(path: str) -> Pipe:
     :param path: The path to the JSON file.
     :return: The pipe function.
     """
-    with open (path) as file:
+    with open(path) as file:
         data = Dict(json_load(file))
     if "options" not in data or not data.get("options") or not data.options.get("model"):
         raise ValueError("The JSON file must contain a non-empty 'options' object with a 'model' key.")

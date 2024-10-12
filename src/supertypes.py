@@ -1,5 +1,12 @@
 """
 Provides a set of interlacing wrappers for Python's functions and container types
+Defines types
+    Typevars 'T', 'X', 'Y'
+    Bound typevars 'F' := Callable[..., Any] (function)
+    End[T] := Callable[[T], T] (endomorphism)
+    Hom[X, Y] := Callable[[X], Y] (should probably use a ParamSpec)
+    Decorator := End[F] := Callable[Callable[..., Any], Callable[..., Any]]
+
 Contains:
     class Null
     class Void
@@ -96,7 +103,7 @@ Decorator = End[F]
 class Null:
     """
     A null object. Methods are to treat it as though it wasn't there.
-    Semantically, 
+    Semantically,
         - {"a": None} is a dictionary with a value None, while {"a": Null} is empty.
         - add(3, None) should raise an error b/c you can't add 3 and None, while add(3, Null) should raise an error b/c add takes two arguments.
     """
@@ -164,7 +171,7 @@ class Multi(list):
     @staticmethod
     def walk(obj: Any, path: List = []) -> Any:
         """
-        Recursively traverses the given object, yielding the path and value of each element.        
+        Recursively traverses the given object, yielding the path and value of each element
         :param obj: The object to traverse.
         :param path: The current path (optional).
         :yields: A tuple containing the path and value of each element.
@@ -192,7 +199,7 @@ class Multi(list):
         return build_skeleton(obj)
 
 def register_all(types: Tuple) -> Decorator:
-    def wrapper(func):
+    def wrapper(func: F) -> F:
         dispatcher = singledispatch(func)
         for t in types:
             dispatcher.register(t)(func)
@@ -210,17 +217,16 @@ def build_skeleton(obj: Any) -> Any:
 def build_skeleton(obj: Any) -> Any:
     if isinstance(obj, Multi):
         return Multi(*[build_skeleton(item) for item in obj])
-    elif isinstance(obj, (dict, typing_Dict)):
+    if isinstance(obj, (dict, typing_Dict)):
         return type(obj)({k: build_skeleton(v) for k, v in obj.items()})
-    elif isinstance(obj, (list, typing_List, tuple, typing_Tuple)):
+    if isinstance(obj, (list, typing_List, tuple, typing_Tuple)):
         return type(obj)(build_skeleton(item) for item in obj)
-    elif isinstance(obj, (set, typing_Set)):
+    if isinstance(obj, (set, typing_Set)):
         return set()  # Always return a regular set for the skeleton
-    return None # Should never reach here with registered types
+    return None  # Should never reach here with registered types
 
 
 Multi.build_skeleton = staticmethod(build_skeleton)
-
 
 
 @singledispatch
@@ -250,7 +256,7 @@ class MetaMeta(type):
     '''
     Necessary for making the compression trick that Meta uses work
     '''
-    def __new__(cls, name: str, bases: typing_Tuple[type, ...], attrs: typing_Dict[str, Any]) -> type:
+    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: Dict[str, Any]) -> type:
         def create_method(method_name: str) -> Callable:
             def method(self, other: str) -> Callable:
                 op_name = method_name.strip('_')
@@ -449,19 +455,19 @@ class Fun:
     def check(cls: Any) -> bool:
         return isinstance(cls, (Fun, Callable))
 
-    def __mul__(self, other) -> 'Fun':
+    def __mul__(self, other) -> Fun:
         # (f*g)(x) = f(g(x))
         def _(*args, **kwargs) -> Any:
             return self(other(*args, **kwargs))
         return Fun(_)
 
-    def __rmul__(self, other) -> 'Fun':
+    def __rmul__(self, other) -> Fun:
         # (g*f)(x) = g(f(x))
         def _(*args, **kwargs) -> Any:
             return other(self(*args, **kwargs))
         return Fun(_)
 
-    def __add__(self, other) -> 'Fun':
+    def __add__(self, other) -> Fun:
         def _(*a) -> Any:
             if len(a) != 1:
                 return (self(a[0]), other(a[1]))
@@ -470,7 +476,7 @@ class Fun:
             return (self(a[0]), other(a[0]))
         return Fun(_)
 
-    def __matmul__(self, other) -> 'Fun':
+    def __matmul__(self, other) -> Fun:
         # f @ L = map(f)(L) = [f(x) for x in L]
         def _(iterable) -> Any:
             return [self.func(x) for x in iterable]
@@ -481,7 +487,7 @@ class Fun:
             return self * arg
         return object.__getattribute__(self, arg)
 
-    def __truediv__(self, other) -> Optional['Fun']:
+    def __truediv__(self, other) -> Optional[Fun]:
         # (f/g)(x) = f(x) if that works, else g(x), else None
         def _(*args, **kwargs) -> Any:
             try:
@@ -493,7 +499,7 @@ class Fun:
                     return None
         return _
 
-    def __pow__(self, n: int) -> 'Fun':
+    def __pow__(self, n: int) -> Fun:
         # repeats a function n times, with n=0 yielding the identity
         n_recurse_at = 3
         if n < n_recurse_at:
@@ -632,11 +638,11 @@ class Dict(dict):
         return super(Dict, self).get(key, None)
 
     @__getitem__.register(list)
-    def _(self, key: typing_List) -> typing_List:
+    def _(self, key: List) -> List:
         return List([self[k] for k in key])
 
     @__getitem__.register(tuple)
-    def _(self, key: typing_Tuple) -> Any:
+    def _(self, key: Tuple) -> Any:
         if len(key) == 1:
             return self[key[0]]
         return None if (key[0] not in self or self[key[0]] is None) else self[key[0]][key[1:]]
@@ -660,7 +666,7 @@ class Dict(dict):
     def check(cls) -> bool:
         return (isinstance(cls, (Dict, dict)))
 
-    def filter(self, predicate: Callable[..., bool]) -> 'Dict':  # only keeps k such that P(k, self[k])
+    def filter(self, predicate: Callable[..., bool]) -> Dict:  # only keeps k such that P(k, self[k])
         if len(self) == 0:
             return Dict()
         # figure out arity of P
@@ -668,10 +674,10 @@ class Dict(dict):
             return Dict({k: v for k, v in self.items() if predicate(k)})
         return Dict({k: v for k, v in self.items() if predicate(k, v)})
 
-    def map(self, f) -> 'Dict':  # applies f to each value in self
+    def map(self, f) -> Dict:  # applies f to each value in self
         return Dict({k: f(v) for k, v in self.items()})
 
-    def mapKeys(self, f) -> 'Dict':  # applies f to each key in self
+    def mapKeys(self, f) -> Dict:  # applies f to each key in self
         return Dict({f(k): v for k, v in self.items()})
 
     def pop(self, key: Any, default: Any = None) -> Any:
@@ -691,22 +697,22 @@ class Dict(dict):
     def has(self, key: Any) -> bool:
         return key in self
 
-    def __mul__(self, f) -> 'Dict':
+    def __mul__(self, f) -> Dict:
         return self.map(f)
 
-    def __rmul__(self, f) -> 'Dict':
+    def __rmul__(self, f) -> Dict:
         return self.mapKeys(f)
 
     # general idea being: f * D applies f to keys, D * f applies f to values
-    def __sub__(self, minor) -> 'Dict':
+    def __sub__(self, minor) -> Dict:
         # D - E removes all keys in E from D
         if isinstance(minor, (list, List, dict, Dict)):
             return Dict({k: v for k, v in self.items() if k not in minor})
         return Dict({k: v for k, v in self.items() if k != minor})
 
-    def __rsub__(self, major) -> 'Dict':
+    def __rsub__(self, major) -> Dict:
         if not isinstance(major, (dict, Dict)):
-            raise ValueError("Can't subtract a dictionary from a non-dictionary")
+            raise TypeError("Can't subtract a dictionary from a non-dictionary")
         return Dict({k: v for k, v in major.items() if k not in self})
 
     def __delitem__(self, key) -> None:
@@ -714,21 +720,25 @@ class Dict(dict):
         if key in self:
             super(Dict, self).__delitem__(key)
 
-    def __add__(self, other) -> 'Dict':
+    def __add__(self, other) -> Dict:
         # D + E = D | E = {k: E.get(k, D.get(k)) for k in set(E.keys()+D.keys())}
         return Dict(self.__dict__ | other)
-    def __radd__(self, other) -> 'Dict':
-        return Dict(other | self.__dict__)
-    def __or__(self, other) -> 'Dict':
-        return Dict(self.__dict__ | other)
-    def __ror__(self, other) -> 'Dict':
-        return Dict(other | self.__dict__)
-    # D & E imprints elements of E onto elements of D; doesn't add elements not in D
-    def __and__(self, other) -> 'Dict':
-        return Dict({k: other[k] for k in self if k in other})
-    def __rand__(self, other) -> 'Dict':
-        return Dict({k: self[k] for k in other if k in self})
 
+    def __radd__(self, other) -> Dict:
+        return Dict(other | self.__dict__)
+
+    def __or__(self, other) -> Dict:
+        return Dict(self.__dict__ | other)
+
+    def __ror__(self, other) -> Dict:
+        return Dict(other | self.__dict__)
+
+    # D & E imprints elements of E onto elements of D; doesn't add elements not in D
+    def __and__(self, other) -> Dict:
+        return Dict({k: other[k] for k in self if k in other})
+
+    def __rand__(self, other) -> Dict:
+        return Dict({k: self[k] for k in other if k in self})
 
     def keys(self) -> list:
         return list(super(Dict, self).keys())
@@ -778,7 +788,7 @@ class List(list):
         return super(List, self).__getitem__(idx)
 
     @__getitem__.register(type(None))
-    def _(self, idx) -> Any:
+    def _(self, _) -> Any:
         return self
 
     @__getitem__.register(tuple)
@@ -801,14 +811,14 @@ class List(list):
     def check(cls) -> bool:
         return isinstance(cls, (List, list))
 
-    def map(self, f) -> 'List':
+    def map(self, f) -> List:
         return List(list(map(f, self)))
 
-    def filter(self, f) -> 'List':
+    def filter(self, f) -> List:
         return List(list(filter(f, self)))
 
     @staticmethod
-    def asyncMap(func: Callable, arr: list, workers: int = 32) -> 'List':
+    def asyncMap(func: Callable, arr: list, workers: int = 32) -> List:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             return List(executor.map(func, arr))
 
@@ -822,7 +832,7 @@ class Tuple(list):
         if not isinstance(items, list):
             items = list(items)
         for i, v in enumerate(items):
-            if isinstance(v, (list, tuple, dict))  and not isinstance(v, (List, Tuple, Dict)):
+            if isinstance(v, (list, tuple, dict)) and not isinstance(v, (List, Tuple, Dict)):
                 items[i] = ({list: List, tuple: Tuple, dict: Dict}[type(v)])(v)
         super(Tuple, self).__init__(items)
 
@@ -863,17 +873,18 @@ class Tuple(list):
     def check(cls: Any) -> bool:
         return isinstance(cls, (tuple, Tuple))
 
-    def map(self, f) -> 'Tuple':
+    def map(self, f) -> Tuple:
         return Tuple(list(map(f, self)))
 
-    def filter(self, f) -> 'Tuple':
+    def filter(self, f) -> Tuple:
         return Tuple(list(filter(f, self)))
 
 def super_func(func: Callable) -> Callable:
     if isinstance(func, Fun):
         func = func.func
+
     @functools_wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> Any:
         output = func(*args, **kwargs)
         for pair in [(list, List), (tuple, Tuple), (dict, Dict)]:
             if isinstance(output, pair[0]) and not isinstance(output, pair[1]):
@@ -881,7 +892,7 @@ def super_func(func: Callable) -> Callable:
         return output
     return Fun(wrapper)
 
-def non_super_func(func: Callable[[X], Y]) -> Callable[[X], Y]: # for clarity
+def non_super_func(func: Callable[[X], Y]) -> Callable[[X], Y]:  # for clarity
     return func
 
 @super_func

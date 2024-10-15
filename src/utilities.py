@@ -1,4 +1,4 @@
-"""
+r"""
 Miscellaneous utilities for simplifying and analyzing this package's other modules.
 
 With:
@@ -30,7 +30,7 @@ Contains:
     print_stream
         (generator) -> None
     get_parameter_values
-        (func: F, args: List[Any], kwargs: Dict[str, Any]) -> Dict[str, Any]
+        (func: F, args: List[Any], kwargs: Object) -> Object
     profile
         (obj: Any, max_depth: int, prefix: str, visited: Optional[List], depth: int) -> List
     fuzzy_in
@@ -41,6 +41,8 @@ Contains:
         (objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]
     query_all
         (objects: List[Dict], key: str, value: Any) -> List[Dict]
+    make_lines
+        (text: str, row_len: int, separators: List[str], newlines: List[str]) -> List[Tuple[int, str]]
     gen_pseudoword
         (length: int, state: int) -> str
 """
@@ -402,7 +404,7 @@ def router(func: F) -> F:
 		'int': { 'float': 3, 'int': -1 }
     }
 
-	def match_args_to_params(args: Tuple[Any, ...], param_names: List[str], param_types: List[Any]) -> Dict[str, Any]:
+	def match_args_to_params(args: Tuple[Any, ...], param_names: List[str], param_types: List[Any]) -> Object:
 		"""Match arguments to parameters based on types."""
 		matched_args = {}
 		args = list(args)
@@ -530,7 +532,7 @@ def print_stream(generator, view: Callable = print) -> None:
         if chunk:
             view(chunk, end='')
 
-def get_parameter_values(func: F, args: List[Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
+def get_parameter_values(func: F, args: List[Any], kwargs: Object) -> Object:
     """
     Get the values of the parameters of a function that were passed as arguments.
         E.g. for calling a function f(a, b=1, c=-1) as f(2, c=9), this function returns {'a':2, 'b':1, 'c':9}.
@@ -734,6 +736,66 @@ def query_all(objects: List[Dict], key: str, value: Any) -> List[Dict]:
         if key in obj and obj[key] == value:
             valid.append(obj)
     return valid
+
+def make_lines(text: str, row_len: int = 80, separators: List[str] = [" "], newlines: List[str] = ["\n"]) -> List[Tuple[int, str]]:
+    """
+    Parses text into lines, respecting row length and separators.
+    :param text: The text to be parsed.
+    :param row_len: The maximum length of each line.
+    :param separators: A list of characters considered separators.
+    :param newlines: A list of characters that trigger a new line.
+    :return: A list of lines, where each line is a list containing its 1-based index and the line content as a string.
+    """
+
+    lines = []
+    current_line = ""
+    line_number = 1
+
+    i = 0
+    while i < len(text):
+        char = text[i]
+
+        if char in newlines:
+            # Start a new line
+            lines.append((line_number, current_line))
+            line_number += 1
+            current_line = ""
+            i += 1  # Move to the next character after the newline
+
+        elif len(current_line) + 1 > row_len:
+            # Line is full, try to split at a separator
+
+            # Find the last separator within the allowed line length
+            last_separator_index = -1
+            for j in range(0, len(current_line) - 1, -1):
+                if current_line[j] in separators:
+                    last_separator_index = j
+                    break
+            if last_separator_index != -1:
+                # Split at the last separator
+                lines.append((line_number, current_line[: last_separator_index]))
+                line_number += 1
+                current_line = current_line[last_separator_index:]
+            else:
+                while i < len(text) and text[i] not in separators + newlines:
+                    current_line += text[i]
+                    i += 1
+                lines.append((line_number, current_line))
+                line_number += 1
+                current_line = text[i] if i < len(text) and text[i] not in newlines else ""
+            i += 1
+        else:
+            # Add the character to the current line
+            current_line += char
+            i += 1
+
+    # Append the last line
+    if current_line:
+        lines.append((line_number, current_line))
+
+    return lines
+
+# make_lines("""When I was young, I'd listen to the radio, waiting for my favorite songs.""", 8)
 
 @super_func
 def gen_pseudoword(length: int, state: int = 0) -> str:

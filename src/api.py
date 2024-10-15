@@ -3,7 +3,7 @@ Set up a custom API
 """
 from __future__ import annotations
 
-from .structure import *
+from .completion import *
 
 import json
 import re

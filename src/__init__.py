@@ -6,23 +6,24 @@ supertypes.py:
 utilities.py:
   (local) [supertypes]
   (extra) []
-tool_calls.py:
+tools.py:
   (local) [utilities]
   (extra) [exa_py, openai, PIL]
-structure.py:
-  (local) [tool_calls]
+completion.py:
+  (local) [tools]
   (extra) [tiktoken]
 piping.py:
-  (local) [structure]
+  (local) [completion]
   (extra) []
 api.py:
-  (local) [structure]
+  (local) [completion]
   (extra) [httpx, fastapi, pydantic]
 """
 
 from .supertypes import *
 from .utilities import *
-from .tool_calls import *
-from .structure import *
+from .tools import *
+from .completion import *
 from .api import app as api_app
 from .piping import pipe_factory, load_pipe
+from .structure import *

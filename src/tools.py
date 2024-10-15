@@ -202,15 +202,13 @@ class Tool:
         return self
 
     # gen_schema will work on any function f with head provided by auto_schema(f, return_docstring=True)
-    def gen_schema(self, func: Optional[Callable] = None, hide: List[str] = None) -> Dict[str, Any]:
+    def gen_schema(self, func: Optional[Callable] = None, hide: List[str] = ["self"]) -> Object:
         """
         Generates a JSON schema for a given function based on its signature and docstring.
         :param func: The function for which to generate the schema.
         :param hide: List of parameter names to hide from the schema.
         :returns: A dictionary representing the JSON schema of the function.
         """
-        if hide is None:
-            hide = ["self"]
         if func is None:
             try:
                 func = self.func
@@ -274,7 +272,7 @@ class Tool:
             self.schema = schema
         return schema
 
-    def auto_schema(self, func: Optional[Callable] = None, provider_model: str = "beta:coder", return_docstring: bool = False) -> Union[Dict[str, Any], str]:
+    def auto_schema(self, func: Optional[Callable] = None, provider_model: str = "beta:coder", return_docstring: bool = False) -> Union[Object, str]:
         """
         Generates a tool schema for a given function based on its signature and inferred purpose.
         :param func: The function for which to generate the schema.
@@ -338,7 +336,7 @@ class Tool:
             print("Failed: " + str(e) + ". Output: \n\n" + func_str)
 
     @staticmethod
-    def schema_from_string(s: str) -> Dict[str, Any]:
+    def schema_from_string(s: str) -> Object:
         '''
         schema_from_string(s: str)
         Takes a human-readable typed function description like this and turns it into a proper schema
@@ -383,7 +381,7 @@ class Tool:
         params = "\n\t".join([v["type"] + " " + k + ": " + v["description"] for k, v in self.schema["function"]["parameters"]["properties"].items()])
         return f'Tool {self.schema["function"]["name"]}({", ".join(list(self.schema["function"]["parameters"]["properties"]))}): {self.schema["function"]["description"]}\n\t{params}'
 
-    def parse_schema(self, K: Dict[str, Any], name: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:
+    def parse_schema(self, K: Object, name: Optional[str] = None, description: Optional[str] = None) -> Object:
         # shortcut for compressing long tool schemas
         # example:
         # x = {'list edits': {'': "A list of edits",
@@ -568,13 +566,32 @@ class Toolbox:
         """
         return f"Toolbox({', '.join([tool.schema['function']['name'] for tool in self.tools])})"
 
+
+def tools_object_from_string(tool_string: str) -> List[Object]:
+    """
+    Converts a string representation of tools into a list of dictionaries.
+    :param tool_string: A string where each tool's details are separated by newlines, and nested details are indented with tabs.
+    :returns: A list of dictionaries, each representing a tool's details parsed from the input string.
+    """
+    tools, current = [], []
+    for i in tool_string.strip().split('\n'):
+        if i.startswith('\t'):
+            current.append(i)
+        else:
+            if (s := '\n'.join(current)):
+                tools.append(schema_from_string(s))
+            current = [i]
+    if (s := '\n'.join(current)):
+        tools.append(schema_from_string(s))
+    return tools
+
 def gatekeep(label: str, categories: Optional[List[str]] = None, raise_error: bool = True) -> Callable:
     """
     A decorator factory for gatekeeping function execution based on specified categories.
-
     :param label: A label describing the type of object (e.g., "python code").
     :param categories: List of categories to check (e.g., ["harmful", "bugged", "obscene", "misinformation", "oversize"]).
     :param raise_error: Whether to raise an error (True) or return a message (False) when gatekeeping fails.
+    :returns: A decorator that can be used to gatekeep function execution.
     """
     if categories is None:
         categories = ["harmful", "bugged"]
@@ -671,7 +688,7 @@ def run_javascript(code: str) -> str:
     return "JavaScript execution not implemented yet."
 
 @Tool
-def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sentences: int = 1) -> list[dict[str, str | list[str]]]:
+def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sentences: int = 1) -> List[Dict[str, Union[str, List[str]]]]:
     """
     Performs an Exa.ai neural search on a query. Useful for finding interesting long-form content (e.g. scientific papers, blog posts, articles) on a variety of topics.
     :param query: The search query string.
@@ -690,7 +707,7 @@ def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sen
     return new_results
 
 @Tool
-def google_search(query: str, num_results: int = 10) -> list[dict[str, str | None]]:
+def google_search(query: str, num_results: int = 10) -> List[Dict[str, Optional[str]]]:
     """
     Performs a Google search on a query and returns a list of simplified search result objects.
     :param query: The search query string.
@@ -713,7 +730,7 @@ def google_search(query: str, num_results: int = 10) -> list[dict[str, str | Non
     return new_results
 
 @Tool
-def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = False) -> dict:
+def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = False) -> Dict:
     """
     Tokenize content using Jina AI's tokenization API.
     :param content: The text content to tokenize.
@@ -737,7 +754,7 @@ def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = 
     return response.json()
 
 @Tool
-def get_contents(url: str) -> dict:
+def get_contents(url: str) -> Dict:
     """
     Fetch human-readable webpage contents using Jina AI's API.
     :param url: The URL of the webpage to analyze.
@@ -756,7 +773,7 @@ def get_contents(url: str) -> dict:
     return response.json()
 
 @Tool
-def get_html(url: str) -> dict:
+def get_html(url: str) -> Dict:
     """
     Fetch raw HTML from a given URL. If you just want to read the page and don't need the HTML code, use `get_contents` instead.
     :param url: The URL from which to fetch HTML.

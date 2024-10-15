@@ -14,11 +14,9 @@ Contains:
         (options_global: Options = None) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]
     load_pipe
         (path: str) -> Pipe
-    make_lines
-        (text: str, row_len: int, separators: List[str], newlines: List[str]) -> List[Tuple[int, str]]
 """
 
-from .structure import *
+from .completion import *
 from requests import get as requests_get
 Options = Optional[Object]
 
@@ -88,66 +86,3 @@ def load_pipe(path: str) -> Pipe:
     options, prompt, training_dict = data.options, data.prompt, data.examples.training
     training = [(pair.input, pair.output) for pair in training_dict]
     return pipe_factory(options)(prompt, training)
-
-def make_lines(text: str, row_len: int = 80, separators: List[str] = [" "], newlines: List[str] = ["\n"]) -> List[Tuple[int, str]]:
-    """
-    Parses text into lines, respecting row length and separators.
-    Args:
-      text (str): The text to be parsed.
-      row_len (int): The maximum length of each line.
-      separators (list): A list of characters considered separators.
-      newlines (list): A list of characters that trigger a new line.
-    Returns:
-      list: A list of lines, where each line is a list containing its
-              1-based index and the line content as a string.
-    """
-
-    lines = []
-    current_line = ""
-    line_number = 1
-
-    i = 0
-    while i < len(text):
-        char = text[i]
-
-        if char in newlines:
-            # Start a new line
-            lines.append((line_number, current_line))
-            line_number += 1
-            current_line = ""
-            i += 1  # Move to the next character after the newline
-
-        elif len(current_line) + 1 > row_len:
-            # Line is full, try to split at a separator
-
-            # Find the last separator within the allowed line length
-            last_separator_index = -1
-            for j in range(0, len(current_line) - 1, -1):
-                if current_line[j] in separators:
-                    last_separator_index = j
-                    break
-            if last_separator_index != -1:
-                # Split at the last separator
-                lines.append((line_number, current_line[: last_separator_index]))
-                line_number += 1
-                current_line = current_line[last_separator_index:]
-            else:
-                while i < len(text) and text[i] not in separators + newlines:
-                    current_line += text[i]
-                    i += 1
-                lines.append((line_number, current_line))
-                line_number += 1
-                current_line = text[i] if i < len(text) and text[i] not in newlines else ""
-            i += 1
-        else:
-            # Add the character to the current line
-            current_line += char
-            i += 1
-
-    # Append the last line
-    if current_line:
-        lines.append((line_number, current_line))
-
-    return lines
-
-# make_lines("""When I was young, I'd listen to the radio, waiting for my favorite songs.""", 8)

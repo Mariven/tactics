@@ -1,25 +1,25 @@
-Files: 
+Files:
 - `src/`
 	- `supertypes.py`
-		- Useful type wrappers to automate common patterns and extend Python's ordinary semantics. 
+		- Useful type wrappers to automate common patterns and extend Python's ordinary semantics.
 	- `utilities.py`
-		- Decorators, logging and debugging utilities, and other ease-of-life features. 
-	- `tool_calls.py`
-		- Classes for facilitating tool de/serialization and use, and a small collection of general-purpose tools. 
- 		- Allows for reading/writing tools to/from PNG images, like SillyTavern's character cards. 
-	- `structure.py`
-		- A unified interface for text and chat completions with all OpenAI-compatible providers. 
+		- Decorators, logging and debugging utilities, and other ease-of-life features.
+	- `tools.py`
+		- Classes for facilitating tool de/serialization and use, and a small collection of general-purpose tools.
+ 		- Allows for reading/writing tools to/from PNG images, like SillyTavern's character cards.
+	- `completion.py`
+		- A unified interface for text and chat completions with all OpenAI-compatible providers.
 	- `api.py`
-		- Runs an API for persistent access to a customizable list of completion methods. 
+		- Runs an API for persistent access to a customizable list of completion methods.
 	- `piping.py`
-		- Utilities for building complex workflows. 
+		- Utilities for building complex workflows.
 
 - `data/`
 	- `providers.json`
-		- A list of providers, along with urls and models. Used to determine which models are accessible. 
+		- A list of providers, along with urls and models. Used to determine which models are accessible.
 	- `secrets.json`
-		- A list of API keys and other secret values for LLM and tool access. 
- 		- Necessarily private; you can copy `secrets.example.json` and fill in the empty values. 
+		- A list of API keys and other secret values for LLM and tool access.
+ 		- Necessarily private; you can copy `secrets.example.json` and fill in the empty values.
 	- `pipes/`
 		- A folder for storing individual workflow steps (`pipes`) serialized as JSON objects.
  		- `html_transformer.json`

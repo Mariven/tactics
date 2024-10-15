@@ -37,6 +37,10 @@ Contains:
         (s1: str, s2: str) -> bool
     regularize
         (obj: Any) -> Any
+    query
+        (objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]
+    query_all
+        (objects: List[Dict], key: str, value: Any) -> List[Dict]
     gen_pseudoword
         (length: int, state: int) -> str
 """
@@ -701,6 +705,35 @@ def select_keys(obj, keys) -> Any:
                 else:
                     new_obj[k] = select_keys(obj[k], v)
     return new_obj
+
+def query(objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]:
+    """
+    Get the first object from a list of dictionaries that matches a key==value query.
+    If no match is found, return on_failure.
+    :param objects: List of dictionaries to search through.
+    :param key: Key to search for.
+    :param value: Value to search for.
+    :param on_failure: Value to return if no match is found.
+    :return: First object that matches the query, or on_failure if no match is found.
+    """
+    for obj in objects:
+        if key in obj and obj[key] == value:
+            return obj
+    return on_failure
+
+def query_all(objects: List[Dict], key: str, value: Any) -> List[Dict]:
+    """
+    Get all objects from a list of dictionaries that match a key==value query.
+    :param objects: List of dictionaries to search through.
+    :param key: Key to search for.
+    :param value: Value to search for.
+    :return: List of all objects that match the query.
+    """
+    valid = List([])
+    for obj in objects:
+        if key in obj and obj[key] == value:
+            valid.append(obj)
+    return valid
 
 @super_func
 def gen_pseudoword(length: int, state: int = 0) -> str:

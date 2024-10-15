@@ -1,0 +1,474 @@
+{
+    "schemas": [
+        {
+            "type": "schema",
+            "id": "Provider",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "api": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string"}
+                        },
+                        "required": ["url"]
+                    },
+                    "models": {
+                        "type": "array",
+                        "items": {"type": "Model"}
+                    }
+                },
+                "required": ["id", "api", "models"]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "Model",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["chat", "text"]
+                    },
+                    "capacity": {
+                        "type": "object",
+                        "properties": {
+                            "input": {"type": "integer"},
+                            "output": {"type": "integer"}
+                        },
+                        "required": ["input", "output"]
+                    },
+                    "cost": {
+                        "type": "object",
+                        "properties": {
+                            "input": {"type": "float"},
+                            "output": {"type": "float"},
+                            "cached": {"type": "float"}
+                        },
+                        "required": ["input", "output"]
+                    },
+                    "parameters": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "short": {"type": "string"}
+                },
+                "required": ["id", "mode"]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "Tool",
+            "title": "OpenAI Tool Schema",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["function"]},
+                    "function": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["object"]},
+                                    "properties": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "object",
+                                            "properties": {
+                                                "type": {"type": "string", "enum": ["string", "array", "object"]},
+                                                "description": {"type": "string"},
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {"type": "string", "enum": ["string"]}
+                                                    },
+                                                    "required": ["type"],
+                                                    "description": "The schema for items in the array, if the parameter type is 'array'."
+                                                },
+                                                "enum": {"type": "array", "items": {"type": "string"}}
+                                            },
+                                            "required": ["type", "description"],
+                                            "additionalProperties": false
+                                        },
+                                        "description": "The properties of the parameters object."
+                                    },
+                                    "required": {"type": "array", "items": {"type": "string"}},
+                                    "additionalProperties": {"type": "boolean"}
+                                },
+                                "required": ["type", "properties", "required"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "required": ["name", "description", "parameters"],
+                        "additionalProperties": false
+                    },
+                    "strict": {"type": "boolean", "description": "Whether the function should be executed in strict mode."}
+                },
+                "required": ["type", "function"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "type": "schema",
+            "id": "Role",
+            "schema": {
+                    "type": "string",
+                    "enum": ["user","assistant","system","tool","function"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "ToolType",
+            "schema": {
+                    "type": "string",
+                    "enum": ["function"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "ResponseFormatType",
+            "schema": {
+                    "type": "string",
+                    "enum": ["text","json_object"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "UserMessage",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string"},
+                        "role": {"$ref": "#/schemas/Role"},
+                        "name": {"type": "string"}
+                    },
+                    "required": ["content","role"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "ToolCall",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "type": {"$ref": "#/schemas/ToolType"},
+                        "function": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"}
+                        }
+                    },
+                    "required": ["id","type","function"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "FunctionCall",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "arguments": {"type": "string"},
+                        "name": {"type": "string"}
+                    },
+                    "required": ["arguments","name"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "AssistantMessage",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string"},
+                        "role": {"$ref": "#/schemas/Role"},
+                        "name": {"type": "string"},
+                        "tool_calls": {
+                        "type": "array",
+                        "items": {"$ref": "#/schemas/ToolCall"}
+                        },
+                        "function_call": {"$ref": "#/schemas/FunctionCall"}
+                    },
+                    "required": [
+                        "role"
+                    ]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "ToolMessage",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "role": {"$ref": "#/schemas/Role"},
+                        "content": {"type": "string"},
+                        "tool_call_id": {"type": "string"}
+                    },
+                    "required": ["role","content","tool_call_id"]
+                }
+        },
+        {
+            "type": "schema",
+            "id": "FunctionMessage",
+            "schema": {
+                    "type": "object",
+                    "properties": {
+                        "role": {"$ref": "#/schemas/Role"},
+                        "content": {"type": "string"},
+                        "name": {"type": "string"}
+                    },
+                    "required": ["role","name"]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "Message",
+            "schema": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        {"$ref": "#/schemas/UserMessage"},
+                        {"$ref": "#/schemas/AssistantMessage"},
+                        {"$ref": "#/schemas/ToolMessage"},
+                        {"$ref": "#/schemas/FunctionMessage"}
+                    ]
+                },
+                "minItems": 1
+            }
+        },
+        {
+            "type": "schema",
+            "id": "OpenAIChatInput",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "messages": {"$ref": "#/schemas/messages"},
+                    "model": {"type": "string"},
+                    "frequency_penalty": {
+                        "type": "number",
+                        "minimum": -2.0,
+                        "maximum": 2.0
+                    },
+                    "logit_bias": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"}
+                    },
+                    "logprobs": {"type": "boolean"},
+                    "top_logprobs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 5
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                    },
+                    "n": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                    },
+                    "presence_penalty": {
+                        "type": "number",
+                        "minimum": -2.0,
+                        "maximum": 2.0
+                    },
+                    "response_format": {
+                        "type": "object",
+                        "additionalProperties": {"$ref": "#/schemas/ResponseFormatType"}
+                    },
+                    "seed": {"type": "integer", "minimum": 0},
+                    "service_tier": {"type": "string"},
+                    "stop": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    ]},
+                    "stream": {"type": "boolean"},
+                    "stream_options": {
+                    "type": "object",
+                    "additionalProperties": {"type": "boolean"}
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 2
+                    },
+                    "top_p": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1
+                    },
+                    "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "object",
+                            "additionalProperties": {
+                                "oneOf": [
+                                {"type": "string"},
+                                {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                    "oneOf": [
+                                        {"type": "string"},
+                                        {"type": "object"}
+                                    ]}
+                                }]
+                            }}
+                        ]}
+                    }},
+                    "tool_choice": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                        "type": "object",
+                        "additionalProperties": {
+                            "oneOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"}
+                            }]
+                        }}
+                    ]},
+                    "parallel_tool_calls": {"type": "boolean"},
+                    "user": {"type": "string"},
+                    "function_call": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"}
+                        }
+                    ]
+                    },
+                    "functions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "object"}
+                        ]}
+                    }}
+                },
+                "required": ["messages", "model"]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "HyperbolicChatInput",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "model": {"type": "string"},
+                    "messages": {"$ref": "#/schemas/messages"},
+                    "temperature": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                    },
+                    "top_p": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1
+                    },
+                    "top_k": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1
+                    },
+                    "n": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                    },
+                    "max_tokens": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                    },
+                    "stop": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                        "type": "array",
+                        "items": {"type": "string"}
+                        }
+                    ]},
+                    "stream": {"type": "boolean"},
+                    "presence_penalty": {
+                    "type": "number",
+                    "minimum": -2.0,
+                    "maximum": 2.0
+                    },
+                    "frequency_penalty": {
+                    "type": "number",
+                    "minimum": -2.0,
+                    "maximum": 2.0
+                    },
+                    "user": {"type": "string"}
+                },
+                "required": ["model", "messages"]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "HyperbolicChatOutput",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "object": {"type": "string"},
+                    "created": {"type": "integer"},
+                    "model": {"type": "string"},
+                    "choices": {
+                        "type": "array",
+                        "items": {"$ref": "#/schemas/CompletionChoice"}
+                    },
+                    "usage": {"$ref": "#/schemas/CompletionUsage"}
+                },
+                "required": [
+                    "id",
+                    "object",
+                    "created",
+                    "model",
+                    "choices",
+                    "usage"
+                ]
+            }
+        },
+        {
+            "type": "schema",
+            "id": "CompletionChoice",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "finish_reason": {"type": "string"},
+                    "index": {"type": "integer"},
+                    "logprobs": {
+                        "type": "array",
+                        "items": {"type": "number"}
+                    },
+                    "text": {"type": "string"},
+                    "stop_reason": {"type": "string"}
+                },
+                "required": [
+                    "index",
+                    "text",
+                    "stop_reason"
+                ]
+            }
+        }
+    ]
+}

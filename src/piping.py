@@ -6,11 +6,12 @@ With:
     F         := Callable[..., Any]
     End       := Callable[[T], T]
     Object    := Dict[str, Any]
+    Options = Optional[Object]
     Decorator := End[F]
-    Pipe      := Callable[[str, Optional[Object]], str]
+    Pipe      := Callable[[str, Options], str]
 Contains:
     pipe_factory
-        (options_global: Optional[Object] = None) -> Callable[[str, List[Tuple[str, str]], End[str], Optional[Object]], Pipe]
+        (options_global: Options = None) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]
     load_pipe
         (path: str) -> Pipe
     make_lines
@@ -19,11 +20,11 @@ Contains:
 
 from .structure import *
 from requests import get as requests_get
-
+Options = Optional[Object]
 
 def pipe_factory(
-        options_global: Optional[Object] = None
-    ) -> Callable[[str, List[Tuple[str, str]], End[str], Optional[Object]], Pipe]:
+        options_global: Options = None
+    ) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]:
     """
     Creates a function that pipes an n-shot prompt (prompt + list of examples) to the chat_completion function.
     :param options_global: The global options to be used in the chat_completion function.
@@ -33,7 +34,7 @@ def pipe_factory(
             prompt: str,
             examples: List[Tuple[str, str]],
             expander: End[str] = lambda x: x,
-            options_local: Optional[Object] = None
+            options_local: Options = None
     ) -> Pipe:
         """
         Pre-fills the chat_completion function with a prompt and examples, creating a string transformer (pipe).
@@ -54,7 +55,7 @@ def pipe_factory(
         @distribute(after=lambda **obj: (obj["order"], obj["value"]), threads=25)
         def pipe(
                 query: str,
-                options_inst: Optional[Object] = None
+                options_inst: Options = None
         ) -> str:
             """
             Transforms a query using the pre-filled prompt and examples.

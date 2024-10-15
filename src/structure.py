@@ -59,14 +59,28 @@ cl100k_base = get_encoding("cl100k_base")
 token_count = Fun(lambda s: len(cl100k_base.encode(s)))
 
 def query(objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]:
-    """Get the first object from a list of dictionaries that matches a key==value query."""
+    """
+    Get the first object from a list of dictionaries that matches a key==value query.
+    If no match is found, return on_failure.
+    :param objects: List of dictionaries to search through.
+    :param key: Key to search for.
+    :param value: Value to search for.
+    :param on_failure: Value to return if no match is found.
+    :return: First object that matches the query, or on_failure if no match is found.
+    """
     for obj in objects:
         if key in obj and obj[key] == value:
             return obj
     return on_failure
 
 def query_all(objects: List[Dict], key: str, value: Any) -> List[Dict]:
-    """Get all objects from a list of dictionaries that match a key==value query."""
+    """
+    Get all objects from a list of dictionaries that match a key==value query.
+    :param objects: List of dictionaries to search through.
+    :param key: Key to search for.
+    :param value: Value to search for.
+    :return: List of all objects that match the query.
+    """
     valid = List([])
     for obj in objects:
         if key in obj and obj[key] == value:
@@ -333,10 +347,19 @@ class Entity:
     """General utilities for networkable entities"""
     def __init__(self) -> None:
         self.id = gen_pseudoword(6).capitalize()
-    def serialize(self) -> None:
-        pass
-    def deserialize(self) -> None:
-        pass
+
+    def serialize(self) -> str:
+        data = {}
+        # ...
+        return json_dumps(data)
+
+    def deserialize(self, data: str) -> Entity:
+        """
+        Fills in an Entity instance from a JSON string.
+        """
+        data = json_loads(data)
+        # ...
+        return self
 
 class Node(Entity):
     """Base class for network nodes."""

@@ -87,7 +87,7 @@ def defer_kwargs(factory: Callable[..., Decorator]) -> Callable[..., Decorator]:
                 for k, v in potential_dec_kwargs.items():
                     if k.startswith('_') and not k.startswith(tuple(f"_{fac.__name__}_" for fac in all_factories)):
                         unprefixed_k = k[1:]
-                        matching_facs = [fac for fac in all_factories if unprefixed_k in (set(inspect.signature(fac).parameters.keys()) - {'args','kwargs'})]
+                        matching_facs = [fac for fac in all_factories if unprefixed_k in (set(inspect.signature(fac).parameters.keys()) - {'args', 'kwargs'})]
                         if len(matching_facs) > 1:
                             msg = f"Ambiguous kwarg {unprefixed_k} belongs to {', '.join(fac.__name__ for fac in matching_facs)}"
                             raise ValueError(msg)
@@ -142,7 +142,7 @@ def show_call(func: Callable, view: Callable = print) -> Callable:
     @functools_wraps(func)
     def wrapper(*args, **kwargs) -> Callable:
         args_str = ", ".join(map(str, args))
-        kwargs_str = ", ".join((str(a)+"="+str(b) for a, b in kwargs.items()))
+        kwargs_str = ", ".join((str(a) + "=" + str(b) for a, b in kwargs.items()))
         nonempty_str = filter(lambda x: x.strip(), [args_str, kwargs_str])
         view(f'{func.__name__}({", ".join(nonempty_str)})')
         out = func(*args, **kwargs)
@@ -175,7 +175,7 @@ def distribute(
         threads: int = 1
     ) -> Decorator:
     """
-    Factory for producing decorators that modify functions to evaluate distributively across lists. E.g., if you have a function f(foo: int, bar: str), then prepending @distribute() allows you to call f(foo=[1,2,3],bar="a") and receive [{foo: 1, order: 0, value: f(foo=1, bar="a")}, {foo: 2, order: 1...}, ...]. 
+    Factory for producing decorators that modify functions to evaluate distributively across lists. E.g., if you have a function f(foo: int, bar: str), then prepending @distribute() allows you to call f(foo=[1,2,3],bar="a") and receive [{foo: 1, order: 0, value: f(foo=1, bar="a")}, {foo: 2, order: 1...}, ...].
     TODO: set safety measures in place, since it might be easy to accidentally trigger 5400 different completions at once
     TODO: add a progress bar and a way to cancel the operation without losing already-computed results
     TODO: add a (contextualizable, combinable) rate limiting system
@@ -389,15 +389,16 @@ def router(func: F) -> F:
 	:return: The decorated function capable of reordering inputs to match parameters
 	"""
 	comparison_matrix = {
-		'Any': { 'list': 60, 'tuple': 65, 'dict': 55, 'set': 50},
-		'list': { 'tuple': 5 , 'list': -1},
-		'tuple': { 'list': 5 , 'tuple': -1},
+		'Any': { 'list': 60, 'tuple': 65, 'dict': 55, 'set': 50 },
+		'list': { 'tuple': 5 , 'list': -1 },
+		'tuple': { 'list': 5 , 'tuple': -1 },
 		'dict': { 'set': 5 , 'dict': -1 },
 		'set': { 'dict': 5 , 'tuple': 3 , 'list': 3 , 'set': -1 },
 		'float': { 'int': 3, 'float': -1 },
-		'int': { 'float': 3, 'int': -1 } }
+		'int': { 'float': 3, 'int': -1 }
+    }
 
-	def match_args_to_params(args: Tuple[Any, ...],param_names: List[str],param_types: List[Any]) -> Dict[str, Any]:
+	def match_args_to_params(args: Tuple[Any, ...], param_names: List[str], param_types: List[Any]) -> Dict[str, Any]:
 		"""Match arguments to parameters based on types."""
 		matched_args = {}
 		args = list(args)
@@ -426,7 +427,7 @@ def router(func: F) -> F:
 			# Compare container types
 			container1, *args1 = type1
 			container2, *args2 = type2
-			if container1 == container2 and container1[0] in ['list', 'tuple', 'dict', 'set']:
+			if container1 == container2 and container1[0] in {'list', 'tuple', 'dict', 'set'}:
 				return compare_types(args1[0], args2[0], epsilon * 0.01) + (compare_types(args1[1], args2[1], epsilon * 0.01) if container1 == 'dict' else 0)
 			# Different container types, use comparison matrix
 			if container1 in comparison_matrix and container2 in comparison_matrix[container1]:
@@ -446,16 +447,16 @@ def router(func: F) -> F:
 		if args:
 			if origin is Union or origin is types.UnionType:
 				return functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], [])
-			if origin in [list, List]:
+			if origin in {list, List}:
 				return [('list', standardize_type(args[0]))]
-			if origin in [dict, Dict]:
+			if origin in {dict, Dict}:
 				return [('dict', standardize_type(args[0]), standardize_type(args[1]))]
-			if origin in [tuple, Tuple]:
+			if origin in {tuple, Tuple}:
 				return [('tuple', *functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], []))]
-			if origin in [set, Set]:
+			if origin in {set, Set}:
 				return [('set', standardize_type(args[0]))]
 		label = re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(typ)) if isinstance(typ, type) else str(typ)
-		if label.split('.')[-1].lower() in ['list', 'dict', 'tuple', 'set']:
+		if label.split('.')[-1].lower() in {'list', 'dict', 'tuple', 'set'}:
 			return [tuple([label.split('.')[-1].lower()] + ([['Any'], ['Any']] if 'ict' in label else [['Any']]))]
 		return [label]
 
@@ -463,15 +464,15 @@ def router(func: F) -> F:
 		# should convert e.g. [(0, 0)] into standardize_type(List[Tuple[int, int]]) = [('list', [('tuple, (['int'], ['int']))])]
 		if isinstance(obj, type):
 			return standardize_type(obj)
-		if not isinstance(obj, (list,dict,tuple,set,List,Dict,Tuple,Set)):
+		if not isinstance(obj, (list, dict, tuple, set, List, Dict, Tuple, Set)):
 			return [re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(type(obj)))]
-		if isinstance(obj, (list,List)):
+		if isinstance(obj, (list, List)):
 			return [('list', standardize_type_literal(obj[0]))]
-		if isinstance(obj, (dict,Dict)):
+		if isinstance(obj, (dict, Dict)):
 			return [('dict', standardize_type_literal(obj[0]), standardize_type_literal(obj[1]))]
-		if isinstance(obj, (tuple,Tuple)):
+		if isinstance(obj, (tuple, Tuple)):
 			return [('tuple', *functools.reduce(operator.iadd, [standardize_type_literal(arg) for arg in obj], []))]
-		if isinstance(obj, (set,Set)):
+		if isinstance(obj, (set, Set)):
 			return [('set', standardize_type_literal(obj[0]))]
 		return None
 
@@ -637,14 +638,14 @@ def profile(obj: Any, max_depth: int = 5, prefix: str = "", visited: Optional[Li
             strings.append(type_name(attr, full_name))
         else:
             strings.append(type_name("Module" if ismod else "Class", full_name, literal=True))
-            if depth in [0, 1, 2] or not ismod:
+            if depth in {0, 1, 2} or not ismod:
                 strings += profile(attr, max_depth, full_name, visited, depth + 1)
     return strings
 
 def fuzzy_in(s1: str, s2: str) -> bool:
     """fuzzy_in"""
     # !jonge algorithm
-    if s1 == "" or s1 in s2:
+    if not s1 or s1 in s2:
         return True
     if len(s1) > len(s2):
         return False
@@ -662,13 +663,13 @@ def regularize(obj) -> Any:
         return [regularize(x) for x in obj]
     if isinstance(obj, (dict, Dict)):
         return {k: regularize(v) for k, v in obj.items()}
-    regularization_methods = [lambda x: x.__dict__, lambda x: x.dict(), lambda x: dict(x)]
+    regularization_methods = [lambda x: x.__dict__, lambda x: x.dict(), dict]
     r = None
     for method in regularization_methods:
         try:
             r = method(obj)
-            assert isinstance(r, dict)
-            break
+            if not isinstance(r, dict):
+                raise TypeError("Output of regularize not a dict")
         except Exception as e:
             pass  # print(type(obj), str(obj)[:20], e)
     return regularize(r)
@@ -685,14 +686,14 @@ def select_keys(obj, keys) -> Any:
     new_obj = Dict({})
     if isinstance(keys, str):
         new_obj = obj.get(keys, None)
-    elif type(keys) in [list, List]:
+    elif type(keys) in {list, List}:
         for i in keys:
             if i in obj:
                 new_obj[i] = obj[i]
-    elif type(keys) in [dict, Dict]:
+    elif type(keys) in {dict, Dict}:
         for (k, v) in keys.items():
             if k in obj:
-                if type(obj[k]) not in [dict, Dict]:
+                if type(obj[k]) not in {dict, Dict}:
                     if isinstance(v, str):
                         new_obj[v] = obj[k]
                     else:

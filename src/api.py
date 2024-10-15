@@ -46,10 +46,8 @@ TOKEN_EXPIRATION = datetime.timedelta(hours=24)
 def create_session_token(user_id: str) -> str:
     """
     Generate a unique session token for the given user.
-    Args:
-        user_id (str): The ID of the user to generate a session token for.
-    Returns:
-        str: A unique session token.
+    :param user_id: The ID of the user to generate a session token for.
+    :returns: A unique session token.
     """
     token = secrets.token_urlsafe()
     expiration = datetime.datetime.utcnow() + TOKEN_EXPIRATION
@@ -59,10 +57,8 @@ def create_session_token(user_id: str) -> str:
 def validate_session_token(token: str) -> bool:
     """
     Check if a session token is valid.
-    Args:
-        token (str): The session token to validate.
-    Returns:
-        bool: True if the token is valid, False otherwise.
+    :param token: The session token to validate.
+    :returns: True if the token is valid, False otherwise.
     """
     if token in session_store:
         _, expiration = session_store[token]
@@ -74,25 +70,20 @@ def validate_session_token(token: str) -> bool:
 def xor_strings(data: str, key: str) -> str:
     """
     Perform XOR encryption on two strings.
-    Args:
-        data: The string to encrypt.
-        key: The encryption key.
-    Returns:
-        str: The XOR encrypted string.
+    :param data: The string to encrypt.
+    :param key: The encryption key.
+    :returns: The XOR encrypted string.
     """
     return ''.join(chr(ord(c) ^ ord(k)) for c, k in zip(data, key * (len(data) // len(key) + 1)))
 
 def verify_token(request: Request, response: Response, credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """
     Verify the provided authorization token.
-    Args:
-        request (Request): The incoming request object.
-        response (Response): The response object.
-        credentials (HTTPAuthorizationCredentials, optional): Credentials provided by the authorization scheme.
-    Returns:
-        str: The user ID associated with a valid token.
-    Raises:
-        HTTPException: If the token is invalid.
+    :param request: The incoming request object.
+    :param response: The response object.
+    :param credentials: Credentials provided by the authorization scheme.
+    :returns: The user ID associated with a valid token.
+    :raises: HTTPException: If the token is invalid.
     """
     if credentials and hashlib.sha256(credentials.credentials.encode()).hexdigest() == local_token_hash:
         new_token = create_session_token(credentials.credentials)
@@ -174,10 +165,8 @@ global_params = {
 def fill(obj: BaseModel) -> Optional[BaseModel]:
     """
     Fill in missing values in the object with default values from global_params.
-    Args:
-        obj (BaseModel): The object to fill.
-    Returns:
-        Optional[BaseModel]: The filled object, or None if obj is not a BaseModel.
+    :param obj: The object to fill.
+    :returns: The filled object, or None if obj is not a BaseModel.
     """
     if not isinstance(obj, BaseModel):
         return None
@@ -190,10 +179,9 @@ def fill(obj: BaseModel) -> Optional[BaseModel]:
 class TokenizeRequest(BaseModel):
     """
     A request for tokenization.
-    Attributes:
-        content (Optional[str]): The text to tokenize.
-        return_tokens (Optional[bool]): Whether to return the tokens.
-        tokenizer (Optional[str]): The tokenizer to use.
+    :param content: The text to tokenize.
+    :param return_tokens: Whether to return the tokens.
+    :param tokenizer: The tokenizer to use.
     """
     content: Optional[str] = None
     return_tokens: Optional[bool] = False
@@ -202,18 +190,16 @@ class TokenizeRequest(BaseModel):
 class ScrapeRequest(BaseModel):
     """
     A request for web scraping.
-    Attributes:
-        url (Optional[str]): The URL to scrape.
+    :param url: The URL to scrape.
     """
     url: Optional[str] = None
 
 class ResolveRequest(BaseModel):
     """
     A request for resolving a model or tool.
-    Attributes:
-        id (Optional[str]): The ID of the model or tool.
-        model (Optional[str]): The model to resolve.
-        mode (Optional[str]): The mode to resolve (e.g. "text", "chat").
+    :param id: The ID of the model or tool.
+    :param model: The model to resolve.
+    :param mode: The mode to resolve (e.g. "text", "chat").
     """
     id: Optional[str] = None  # ambiguous whether to call id or model, so allow both
     model: Optional[str] = None
@@ -222,13 +208,12 @@ class ResolveRequest(BaseModel):
 class Parameters(BaseModel):
     """
     Parameters for a request.
-    Attributes:
-        model (Optional[str]): The model to use.
-        mode (Optional[str]): The mode to use.
-        temperature (Optional[float]): The temperature to use.
-        top_p (Optional[float]): The top_p to use.
-        max_tokens (Optional[int]): The maximum number of tokens to generate.
-        stream (Optional[bool]): Whether to stream the response (default: True).
+    :param model: The model to use.
+    :param mode: The mode to use.
+    :param temperature: The temperature to use.
+    :param top_p: The top_p to use.
+    :param max_tokens: The maximum number of tokens to generate.
+    :param stream: Whether to stream the response (default: True).
         ...
     """
     model: Optional[str] = None
@@ -276,7 +261,12 @@ class Parameters(BaseModel):
 @app.post("/v1/text")
 @app.post("/v1/completions")
 async def api_text_completion(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Any:
-    """api_text_completion"""
+    """
+    Takes a text completion request and returns the completion.
+    :param request: The text completion request.
+    :param credentials: The authorization credentials.
+    :returns: The completion.
+    """
     bare_request = {k: v for (k, v) in request.dict().items() if v is not None}
     b = str(bare_request.get("prompt"))
     max_log_length = 150
@@ -314,6 +304,9 @@ async def api_text_completion(request: Parameters, credentials: HTTPAuthorizatio
 async def api_chat_completion(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Any:
     """
     Endpoint for chat completion requests.
+    :param request: The chat completion request.
+    :param credentials: The authorization credentials.
+    :returns: The chat completion response.
     """
     bare_request = {k: v for (k, v) in request.dict().items() if v is not None}
     b = re.sub(r"\{(['\"])role['\"]: ['\"]([a-zA-Z]+)['\"], ['\"]content['\"]: ['\"]", r"{\1\2: ", str(bare_request.get("messages")))
@@ -347,10 +340,8 @@ async def api_chat_completion(request: Parameters, credentials: HTTPAuthorizatio
 async def get_parameters(credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
     Retrieves the global parameters.
-    Args:
-        credentials (HTTPAuthorizationCredentials): The authorization credentials.
-    Returns:
-        Dict: A dictionary containing the global parameters.
+    :param credentials (HTTPAuthorizationCredentials): The authorization credentials.
+    :returns: A dictionary containing the global parameters.
     """
     return global_params
 
@@ -358,11 +349,9 @@ async def get_parameters(credentials: HTTPAuthorizationCredentials = Depends(ver
 async def set_parameters(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
     Sets the global parameters.
-    Args:
-        request (Parameters): The parameters to be updated.
-        credentials (HTTPAuthorizationCredentials): The authorization credentials.
-    Returns:
-        Dict: A dictionary containing a success message.
+    :param request: The parameters to be updated.
+    :param credentials: The authorization credentials.
+    :returns: A dictionary containing a success message.
     """
     for key, value in request.dict().items():
         if value is not None:
@@ -375,12 +364,10 @@ async def get_models_query(
     credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
     Retrieves a list of models. If `id` or `mode` is provided, it will filter the list accordingly.
-    Args:
-        id (str): The ID of the model (optional).
-        mode (str): The mode of the model (optional).
-        credentials (HTTPAuthorizationCredentials): The authorization credentials.
-    Returns:
-        Dict: A dictionary containing a list of models.
+    :param id: The ID of the model (optional).
+    :param mode: The mode of the model (optional).
+    :param credentials: The authorization credentials.
+    :returns: A dictionary containing a list of models.
     """
     if id or mode:
         return await do_resolve(ResolveRequest(id=id, model=id, mode=mode), credentials)
@@ -394,11 +381,9 @@ async def get_models_query(
 async def do_resolve(request: ResolveRequest, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> str:
     """
     Resolves a model or tool based on the provided request.
-    Args:
-        request (ResolveRequest): The request containing the ID, model, and mode.
-        credentials (HTTPAuthorizationCredentials): The authorization credentials.
-    Returns:
-        str: A string containing a list of possible models.
+    :param request (ResolveRequest): The request containing the ID, model, and mode.
+    :param credentials: The authorization credentials.
+    :returns: A string containing a list of possible models.
     """
     mode = str(request.mode) if request.mode else ''
     model = str(request.model) if request.model else str(request.id) if request.id else ''
@@ -411,7 +396,13 @@ async def get_tokens(
     content: str = Query(None), return_tokens: bool = Query(None), tokenizer: str = Query("o200k_base"),
     credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
-    get_tokens
+    Gives the tokens for a given text. If `request` is provided, it will use the `content`, `return_tokens`, and `tokenizer` from the request. Otherwise, it will use the query parameters.
+    :param request: The tokenize request (optional).
+    :param content: The text to tokenize (optional).
+    :param return_tokens: Whether to return the list of tokens (optional).
+    :param tokenizer: The tokenizer to use (optional).
+    :param credentials: The authorization credentials.
+    :returns: A dictionary containing the token count, list, etc.
     """
         # Combine query params and JSON body, prioritizing query params
     params = {
@@ -453,7 +444,11 @@ async def scrape_url(
     request: ScrapeRequest = None, url: str = Query(None),
     credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
-    scrape_url
+    Service for scraping text from a URL.
+    :param request: The scrape request (optional).
+    :param url: The URL to scrape (optional).
+    :param credentials: The authorization credentials.
+    :returns: A dictionary containing the scraped text.
     """
     scrape_url = url or (request.url if request else None)
     if not scrape_url:
@@ -480,7 +475,10 @@ async def scrape_url(
 @app.get("/v1/scrape/{url:path}")
 async def scrape_url_direct(url: str, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
     """
-    scrape_url_direct
+    Alias for `scrape_url` with the URL provided as a path parameter.
+    :param url: The URL to scrape.
+    :param credentials: The authorization credentials.
+    :returns: A dictionary containing the scraped text.
     """
     return await scrape_url(url=url, credentials=credentials)
 
@@ -549,33 +547,17 @@ function processArray(arr, condition) {
 
 """.strip()
 
+with open('data/structured_outputs/code_diff.json') as file:
+    code_diff_schema = json.load(file)
 
-code_diff_schema = {
-    'name': 'code_diff',
-    'strict': True,
-    'schema': {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["completions"],
-        "properties": {
-            "completions": {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    "required": ["index", "lines"],
-                    "additionalProperties": False,
-                    'properties': {
-                        "index": {"type": "integer"},
-                        "lines": {'type': 'array','items':{'type':'string'}}
-                    }
-                }
-            }
-        },
-    },
-}
-
-
-def js_wand(incomplete_code, endpoint, complete_raw = None):
+def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = None):
+    """
+    Takes incomplete JavaScript code and completes it using the provided endpoint.
+    :param incomplete_code: The incomplete JavaScript code to be completed.
+    :param endpoint: The endpoint to be used for completion.
+    :param complete_raw: Whether to return the raw completion or not.
+    :returns: The completed JavaScript code.
+    """
     debug = True
     if debug:
         debug_file = open('../logs/debug.txt', 'a')

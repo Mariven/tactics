@@ -1138,17 +1138,27 @@ def const(c: T, x: Any) -> T:
     """
     return c
 
+# @super_func
+# def sub(pattern, repl) -> Callable[str, str]:
+#     """
+#     Returns a function that replaces occurrences of pattern in the given string with repl.
+#     :param pattern: The pattern to search for.
+#     :param repl: The replacement string.
+#     :returns: The substituting function.
+#     """
+#     return lambda string: re.sub(pattern, repl, string)
+
+# sub = Fun.form('01 2', '012', re.sub)
+
 @super_func
-def sub(pattern, repl) -> Callable[str, str]:
+def sub(pattern: str, repl: str, string: str) -> str:
     """
     Returns a function that replaces occurrences of pattern in the given string with repl.
     :param pattern: The pattern to search for.
     :param repl: The replacement string.
     :returns: The substituting function.
     """
-    return lambda string: re.sub(pattern, repl, string)
-
-sub = Fun.form('01 2', '012', re.sub)
+    return re.sub(pattern, repl, string)
 
 @super_func
 def join(sep: str, iterable: Iterable[str]) -> Any:

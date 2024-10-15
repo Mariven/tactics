@@ -1,0 +1,34 @@
+{
+    "name": "answer_question",
+    "description": "Answers a question",
+    "strict": true,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "thoughts": {
+                "type": ["string", "null"],
+                "description": "This is optional scratch paper the assistant may use to privately draft, construct, or verify an answer."
+            },
+            "explanation": {
+                "type": ["string", "null"],
+                "description": "An optional description and explanation of the answer for the user."
+            },
+            "answer": {
+                "type": "string",
+                "description": "The concise final answer, sans explanation, preambling, etc."
+            },
+            "example": {
+                "type": ["string", "null"],
+                "description": "An optional example to be provided, if appropriate."
+            },
+            "notes": {
+                "type": ["string", "null"],
+                "description": "Optional additional information or notes for the user."
+            }
+        },
+        "additionalProperties": false,
+        "required": [
+            "thoughts", "explanation", "answer", "example", "notes"
+        ]
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "name": "code_diff",
+    "strict": true,
+    "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["completions"],
+        "properties": {
+            "completions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["index","lines"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "index": {"type": "integer"},
+                        "lines": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

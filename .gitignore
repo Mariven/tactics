@@ -1,0 +1,17 @@
+.aider*
+.vscode/*
+.DS_Store
+__pycache__
+*.pyc
+*.pyo
+*.html
+extra
+experimental
+data/caches/*
+data/secrets.json
+data/logs
+data/logs/*
+data/embeddings/*
+improvements.md
+scratch.ipynb
+example_notebook.ipynb

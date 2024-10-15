@@ -38,7 +38,7 @@ Contains:
     regularize
         (obj: Any) -> Any
     query
-        (objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]
+        (objects: List[Dict], key: str, value: Any, on_failure: Dict) -> Dict
     query_all
         (objects: List[Dict], key: str, value: Any) -> List[Dict]
     make_lines
@@ -708,7 +708,7 @@ def select_keys(obj, keys) -> Any:
                     new_obj[k] = select_keys(obj[k], v)
     return new_obj
 
-def query(objects: List[Dict], key: str, value: Any, on_failure: Optional[Dict] = None) -> Optional[Dict]:
+def query(objects: List[Dict], key: str, value: Any, on_failure: Dict = {}) -> Dict:
     """
     Get the first object from a list of dictionaries that matches a key==value query.
     If no match is found, return on_failure.

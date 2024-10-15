@@ -24,13 +24,27 @@ with open('data/providers.json', encoding='utf-8') as f:
     provider_table = Dict(json_load(f))
 
 # keys = {k: v['api']['key'] for k, v in provider_table.items()}
-
-clients = Dict({provider.id: OpenAI(api_key = keys.get(provider.id, ""), base_url = provider.api.url) for provider in provider_table.providers})
+clients = Dict()
+for provider in provider_table.providers:
+    p_key_id = provider.api.get("key-secret")
+    if p_key_id and p_key_id in keys and keys[p_key_id]:
+        provider.api.key = keys[p_key_id]
+        # print(f"{provider.id} key found")
+        clients[provider.id] = OpenAI(
+            api_key=provider.api.key,
+            base_url=provider.api.url
+        )
+        provider.enabled = True
+    else:
+        # print(f"{provider.id} key not found")
+        provider.enabled = False
 
 models_by_mode = Dict({'text': {}, 'chat': {}})
 models = List()
 
 for provider in provider_table.providers:
+    if not provider.enabled:
+        continue
     prov_name = provider.id
     vars()[provider.id.replace('-','_')] = clients[provider.id]
     for model in provider.models:

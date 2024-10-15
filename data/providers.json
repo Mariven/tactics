@@ -3,7 +3,8 @@
 		{
 			"id": "deepseek-beta",
 			"api": {
-				"url": "https://api.deepseek.com/beta"
+				"url": "https://api.deepseek.com/beta",
+				"key-secret": "deepseek-beta"
 			},
 			"models": [
 				{
@@ -40,7 +41,8 @@
 		{
 			"id": "openai",
 			"api": {
-				"url": "https://api.openai.com/v1"
+				"url": "https://api.openai.com/v1",
+				"key-secret": "openai"
 			},
 			"models": [
 				{
@@ -137,7 +139,8 @@
 		{
 			"id": "openrouter",
 			"api": {
-				"url": "https://openrouter.ai/api/v1"
+				"url": "https://openrouter.ai/api/v1",
+				"key-secret": "openrouter"
 			},
 			"models": [
 				{
@@ -489,7 +492,8 @@
 		{
 			"id": "fireworks",
 			"api": {
-				"url": "https://api.fireworks.ai/inference/v1"
+				"url": "https://api.fireworks.ai/inference/v1",
+				"key-secret": "fireworks"
 			},
 			"models": [
 				{
@@ -600,7 +604,8 @@
 		{
 			"id": "groq",
 			"api": {
-				"url": "https://api.groq.com/openai/v1"
+				"url": "https://api.groq.com/openai/v1",
+				"key-secret": "groq"
 			},
 			"models": [
 				{
@@ -664,7 +669,8 @@
 		{
 			"id": "hyperbolic",
 			"api": {
-				"url": "https://api.hyperbolic.xyz/v1"
+				"url": "https://api.hyperbolic.xyz/v1",
+				"key-secret": "hyperbolic"
 			},
 			"models": [
 				{

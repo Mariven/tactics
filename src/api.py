@@ -17,8 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-local_token_hash = "80502743d54e8db2992a8b6cf7ccb1f1914358398ef1aa45d949c5957ee8edd6"
-jina_secret = "\x01](\x14\x16^@\x03.r\n\x0e'\x17F\x12/PQpG\x04W)\tQr\x17~\x0bO\x00xw\t\\'J\x1b \x0c\r`\x1b \x07\x0c\x0e<\x00(0\x02\x0b\x15t\x19\x11\x0fXu;I!\x02"
+
+with open('data/secrets.json') as file:
+    secrets_data = json.load(file).get('secrets', [])
+    custom_secret = query(secrets_data, 'id', 'custom-key', {})
+    jina_secret = query(secrets_data, 'id', 'jina', {})
+    if not custom_secret or not custom_secret.get("value"):
+        raise ValueError("Local server API key (secret 'custom-key') not found or empty in secrets.json")
+    local_token = custom_secret["value"]
+    jina_key = jina_secret.get("value")
+
 security = HTTPBearer()
 
 app = FastAPI()
@@ -85,7 +93,7 @@ def verify_token(request: Request, response: Response, credentials: HTTPAuthoriz
     :returns: The user ID associated with a valid token.
     :raises: HTTPException: If the token is invalid.
     """
-    if credentials and hashlib.sha256(credentials.credentials.encode()).hexdigest() == local_token_hash:
+    if credentials and credentials.credentials == local_token:
         new_token = create_session_token(credentials.credentials)
         response.set_cookie(key="session_token", value=new_token, samesite="strict")
         return credentials.credentials
@@ -417,7 +425,7 @@ async def get_tokens(
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + xor_strings(jina_secret, credentials),
+        "Authorization": "Bearer " + jina_key,
     }
     content = request.content
     baseData = {"tokenizer": tokenizer, "return_tokens": return_tokens}
@@ -455,7 +463,7 @@ async def scrape_url(
         raise HTTPException(status_code=400, detail="'url' is required")
     headers = {
         "Accept": "application/json",
-        "Authorization": "Bearer " + xor_strings(jina_secret, credentials),
+        "Authorization": "Bearer " + jina_key,
         "Content-Type": "application/json",
     }
     data = {

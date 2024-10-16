@@ -5,7 +5,7 @@ Required modules: pydantic_core (supertypes.py), exa_py, openai, PIL (tools.py),
 from setuptools import setup, find_packages
 
 setup(
-    name='noema',
+    name='tactics',
     version='0.1',
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
@@ -22,7 +22,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'noema_api=noema.api:main',  # allows running API as a script
+            'tactics_api=tactics.api:main',  # allows running API as a script
         ],
     },
 )

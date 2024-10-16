@@ -18,6 +18,9 @@ piping.py:
 api.py:
   (local) [completion]
   (extra) [httpx, fastapi, pydantic]
+structure.py
+  (local) [completion]
+  (extra) []
 """
 
 from .supertypes import *

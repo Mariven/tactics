@@ -512,7 +512,7 @@ You would replace the Python code at line 2 and the pseudocode at line 4 with Ja
         "return objects.map(x => callback(x.params));"
     ]},
     {"id": 4, "lines": [
-        "for (let i = 0; i < list.length; i++) {", 
+        "for (let i = 0; i < list.length; i++) {",
         "list[i].params = list[i].params.reverse();",
         "break;",
         "}"
@@ -537,7 +537,7 @@ call #1: {"edits": [{"id": 4, "lines": [comment, completed code]}]}
 By following these guidelines, use the line editor tool to provide the completed JavaScript code at each incomplete line number.
 """.strip()
 
-testJS = """
+test_js = """
 if (condition) {
     arr = arr.filter(num => num % 2 === 0).map(num => num * 2);
     } else {
@@ -558,7 +558,7 @@ function processArray(arr, condition) {
 with open('data/structured_outputs/code_diff.json') as file:
     code_diff_schema = json.load(file)
 
-def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = None):
+def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = None) -> str:
     """
     Takes incomplete JavaScript code and completes it using the provided endpoint.
     :param incomplete_code: The incomplete JavaScript code to be completed.
@@ -570,11 +570,11 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
     if debug:
         debug_file = open('../logs/debug.txt', 'a')
     try:
-        def enumerate_lines(code):
+        def enumerate_lines(code: str) -> List[str]:
             """
             Enumerate each line of the provided code snippet.
             """
-            cleaned_code = re.sub('^\n*([\s\S]+?)\n*$', r'\1', code)
+            cleaned_code = re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', code)
             code_lines = cleaned_code.split('\n')
             enumerated_lines = []
             for line_number, line_content in enumerate(code_lines):
@@ -593,7 +593,7 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
             complete_raw = json.loads(completion_request.content)['result']
             if debug:
                 debug_file.write(str(complete_raw) + '\n')
-        original_code_lines = {k: [v] for k, v in enumerate(re.sub('^\n*([\s\S]+?)\n*$', r'\1', incomplete_code).split('\n'))}
+        original_code_lines = {k: [v] for k, v in enumerate(re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', incomplete_code).split('\n'))}
         completed_code_lines = {int(completion['index']) - 1: completion['lines'] for completion in json.loads(complete_raw)['completions']}
 
         if debug:
@@ -601,23 +601,24 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
             debug_file.write(str(completed_code_lines) + '\n')
         new_lines = []
 
-        def get_indents(line):
+        def get_indents(line: str) -> Tuple[str, int]:
             """
             Determine the indentation type and depth of a given line.
             """
             indent_info = {y: len(re.findall(f'^({y[0]}*)', line)[0]) // len(y) for y in ['   ', '\t']}
-            indent_type, indent_depth = sorted(indent_info.items(), key=lambda x: x[1])[-1]
+            sorted_pairs = sorted(indent_info.items(), key=lambda x: x[1])
+            indent_type, indent_depth = sorted_pairs[-1]
             return indent_type, indent_depth
+
         indent_type, indent_depth = get_indents(original_code_lines[0][0])
         for line_index, line_list in enumerate((original_code_lines | completed_code_lines).values()):
             for line_content in line_list:
                 if line_content.strip()[0] in ')]}':
                     indent_depth -= 1
-                if line_index in completed_code_lines.keys():
+                if line_index in completed_code_lines:
                     new_lines.append(indent_type * indent_depth + line_content)
-                else:
-                    if not (line_content.strip().startswith('/*') and line_content.strip().endswith('*/')):
-                        new_lines.append(line_content)
+                elif not (line_content.strip().startswith('/*') and line_content.strip().endswith('*/')):
+                    new_lines.append(line_content)
                 if line_content.strip()[-1] in '([{':
                     indent_depth += 1
 
@@ -632,21 +633,34 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
 
     return result
 
-def text_wand(incomplete_text, raw_edits = None):
-    def enumerate_lines(code):
-        cleaned_code_lines = re.sub('^\n*([\s\S]+?)\n*$', r'\1', code).split('\n')
+def text_wand(incomplete_text: str, raw_edits = None) -> str:
+    def enumerate_lines(code: str) -> List[str]:
+        cleaned_code_lines = re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', code).split('\n')
         return [str(idx + 1) + ' ' + text for idx, text in enumerate(cleaned_code_lines)]
-    def obtain_edits(lines):
-        response = completion(pretty_tool_calls=False, mode="chat", messages=[{'role': 'system', 'content': js_completer_prompt},
-            {'role': 'user', 'content': '\n'.join(enumerated_lines)}],model='gpt-4o-2024-08-06', return_raw=True,tools=[line_replace_schema])
-        if not response.choices[0].finish_reason == 'tool_calls':
-            raise Exception('Model did not call the line_diff tool:\n'+str(response))
+
+    def obtain_edits(lines: List[str]) -> List[Object]:
+        response = completion(
+            pretty_tool_calls=False,
+            mode="chat",
+            messages=[
+                {'role': 'system', 'content': js_completer_prompt},
+                {'role': 'user', 'content': '\n'.join(enumerated_lines)}
+            ],
+            model='gpt-4o-2024-08-06',
+            return_raw=True,
+            tools=[line_replace_schema]
+        )
+        if response.choices[0].finish_reason != 'tool_calls':
+            msg = 'Model did not call the line_diff tool:\n' + str(response)
+            raise Exception(msg)
         raw_edits = response.choices[0].message.tool_calls
         if len(raw_edits) > 1:
-            raise Exception('Model called line_diff multiple times in parallel:\n'+str(response))
+            msg = 'Model called line_diff multiple times in parallel:\n' + str(response)
+            raise Exception(msg)
         return raw_edits
-    def apply_edits(old_text, raw_edits):
-        old_lines = {k: [v] for k, v in enumerate(re.sub('^\n*([\s\S]+?)\n*$', r'\1', old_text).split('\n'))}
+
+    def apply_edits(old_text: str, raw_edits: List[str]) -> str:
+        old_lines = {k: [v] for k, v in enumerate(re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', old_text).split('\n'))}
         line_edits = {int(edit['id']) - 1: edit['lines'] for edit in json.loads(raw_edits[0].function.arguments)['edits']}
         return [y for y_ in (old_lines | line_edits).values() for y in y_]
 

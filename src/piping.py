@@ -1,14 +1,6 @@
 r"""
 Abstractions and frameworks for constructing text transformers.
 
-With:
-    T, X, Y generic
-    F         := Callable[..., Any]
-    End       := Callable[[T], T]
-    Object    := Dict[str, Any]
-    Options = Optional[Object]
-    Decorator := End[F]
-    Pipe      := Callable[[str, Options], str]
 Contains:
     pipe_factory
         (options_global: Options = None) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]
@@ -26,7 +18,7 @@ def pipe_factory(
     """
     Creates a function that pipes an n-shot prompt (prompt + list of examples) to the chat_completion function.
     :param options_global: The global options to be used in the chat_completion function.
-    :return: A function that takes a prompt, examples, options, and an expander, and returns a function that takes a query and options and returns a response.
+    :returns: A function that takes a prompt, examples, options, and an expander, and returns a function that takes a query and options and returns a response.
     """
     def pipe_constructor(
             prompt: str,
@@ -40,7 +32,7 @@ def pipe_factory(
         :param examples: A list of examples to follow, formatted as user and assistant messages.
         :param options: The options to be sent to the chat_completion function.
         :param expander: A function that expands pipe inputs before transforming them. Useful in conjunction with the distribute decorator.
-        :return: A function that takes a query and optional options and returns a response.
+        :returns: A function that takes a query and optional options and returns a response.
         """
         messages = [{"role": "system", "content": prompt}]
         for (query, answer) in examples:
@@ -59,7 +51,7 @@ def pipe_factory(
             Transforms a query using the pre-filled prompt and examples.
             :param query: The query to be transformed.
             :param options_ex: The options to be sent to the chat_completion function.
-            :return: The transformed query.
+            :returns: The transformed query.
             """
             options_base = {"stream": False, "mode": "chat"}
             return chat_completion(
@@ -73,10 +65,10 @@ def load_pipe(path: str) -> Pipe:
     """
     Loads a pipe from a JSON file.
     :param path: The path to the JSON file.
-    :return: The pipe function.
+    :returns: The pipe function.
     """
     with open(path) as file:
-        data = Dict(json_load(file))
+        data = Dict(json.load(file))
     if "options" not in data or not data.get("options") or not data.options.get("model"):
         raise ValueError("The JSON file must contain a non-empty 'options' object with a 'model' key.")
     if "prompt" not in data or not data.get("prompt"):

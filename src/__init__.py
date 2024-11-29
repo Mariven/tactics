@@ -15,9 +15,9 @@ completion.py:
 piping.py:
   (local) [completion]
   (extra) []
-api.py:
+server.py:
   (local) [completion]
-  (extra) [httpx, fastapi, pydantic]
+  (extra) [httpx, fastapi, pydantic, toolz]
 structure.py
   (local) [completion]
   (extra) []
@@ -27,6 +27,7 @@ from .supertypes import *
 from .utilities import *
 from .tools import *
 from .completion import *
-from .api import app as api_app
+from .server import app as api_app
 from .piping import pipe_factory, load_pipe
 from .structure import *
+from .datamgmt import *

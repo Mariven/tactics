@@ -1,6 +1,6 @@
 """
 Set up package.
-Required modules: pydantic_core (supertypes.py), exa_py, openai, PIL (tools.py), fastapi, httpx (api.py), tiktoken (completion.py)
+Required modules: pydantic_core, toolz (supertypes.py), exa_py, openai, PIL (tools.py), fastapi, httpx (server.py), tiktoken (completion.py)
 """
 from setuptools import setup, find_packages
 

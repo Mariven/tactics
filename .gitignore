@@ -1,10 +1,12 @@
 .aider*
 .vscode/*
+*.code-workspace
 .DS_Store
 __pycache__
 *.pyc
 *.pyo
 *.html
+test*.txt
 extra
 experimental
 data/caches/*
@@ -13,5 +15,6 @@ data/logs
 data/logs/*
 data/embeddings/*
 improvements.md
-scratch.ipynb
+scratch*.ipynb
 example_notebook.ipynb
+visible/*c

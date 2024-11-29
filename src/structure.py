@@ -1,3 +1,55 @@
+r"""
+Contains:
+    class Role(Enum)
+
+    class Entity
+        serialize           (self) -> str
+        deserialize         (self, data: str) -> Entity
+
+    class Node(Entity)
+        get_depth           (self) -> int
+        add_parent          (self, parent: Node) -> None
+        add_child           (self, child: Node) -> None
+        spawn               (self) -> Node
+        update              (self) -> None
+
+    class Relation(Node, Entity)
+        spawn               (self) -> Message
+        update              (self) -> None
+        _construct_message_chain     (self) -> List[Dict[str, str]]
+
+    class Message(Node, Entity)
+        add_node            (self, node: Node) -> Node
+        _get_last_node      (self) -> Node
+
+    class Network(Entity)
+        add_message         (self, content: str, role: Role, created_by: Optional[ModelInstance], callback: Optional[Callable]) -> Message
+        generate_response   (self) -> Message
+
+    class ModelInstance(Node, Entity)
+        spawn               (self) -> ModelInstance
+        update              (self) -> None
+
+    class StatefulChat(History, Entity)
+        set_state           (self, key, value) -> StatefulChat
+        get_state           (self, key, default=None) -> Any
+        first               (self) -> Any
+        last                (self) -> Any
+        messages            (self) -> List[Dict[str, str]]
+        undo                (self, n: int) -> StatefulChat
+        redo                (self) -> StatefulChat
+        save                (self, path: str) -> StatefulChat
+        save_string         (self) -> str
+        load                (self, path: str) -> StatefulChat
+        load_string         (self, s: str) -> StatefulChat
+        clone               (self, **kwargs) -> StatefulChat
+        addMessage          (self, role: str, content: str, **kwargs) -> StatefulChat
+        system              (self, content: str, echo: bool) -> StatefulChat
+        assistant           (self, content: str, echo: bool) -> StatefulChat
+        user                (self, content: str, echo: bool) -> StatefulChat
+        next                (self, **kwargs) -> StatefulChat
+        run                 (self, **kwargs) -> None
+"""
 from __future__ import annotations
 from .completion import *
 
@@ -33,13 +85,13 @@ class Entity:
     def serialize(self) -> str:
         data = {}
         # ...
-        return json_dumps(data)
+        return json.dumps(data)
 
     def deserialize(self, data: str) -> Entity:
         """
         Fills in an Entity instance from a JSON string.
         """
-        data = json_loads(data)
+        data = json.loads(data)
         # ...
         return self
 
@@ -135,7 +187,7 @@ class Message(Node, Entity):
         }
         self.data['refusal'] = r.choices[0].message.get('refusal', None)
         self.data['tool_calls'] = r.choices[0].message.get('tool_calls', None)
-        self.data['datetime'] = datetime_datetime.utcfromtimestamp(r.created).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self.data['datetime'] = datetime.utcfromtimestamp(r.created).strftime('%Y-%m-%dT%H:%M:%SZ')
 
         provider, model = self.created_by.provider, self.created_by.model
         self.data['usage']['cost'] = round(sum(
@@ -281,19 +333,19 @@ class StatefulChat(History, Entity):
     def first(self) -> Any:
         if self.message_history == []:
             return None
-        return self.message_history[0]
+        return Dict(self.message_history[0])
 
     @property
     def last(self) -> Any:
         if self.message_history == []:
             return None
-        return self.message_history[-1]
+        return Dict(self.message_history[-1])
 
     @property
     def messages(self) -> List[Dict[str, str]]:
-        return self.message_history
+        return List(self.message_history)
 
-    def undo(self, n=1) -> StatefulChat:
+    def undo(self, n: int = 1) -> StatefulChat:
         for _ in range(n):
             if len(self.message_history) > 0:
                 self.message_history.pop()
@@ -304,7 +356,7 @@ class StatefulChat(History, Entity):
 
     def save(self, path: str) -> StatefulChat:
         with open(path, 'w') as f:
-            json_dump({
+            json.dump({
                     'message_history': self.message_history,
                     'apiParams': self.apiParams,
                     'localParams': self.localParams,
@@ -313,7 +365,7 @@ class StatefulChat(History, Entity):
         return self
 
     def save_string(self) -> str:
-        return json_dumps({
+        return json.dumps({
                 'message_history': self.message_history,
                 'apiParams': self.apiParams,
                 'localParams': self.localParams,
@@ -322,15 +374,15 @@ class StatefulChat(History, Entity):
 
     def load(self, path: str) -> StatefulChat:
         with open(path) as f:
-            data = json_load(f)
-            self.message_history = data['message_history']
-            self.apiParams = data['apiParams']
-            self.localParams = data['localParams']
-            self.stateParams = data['stateParams']
-            return self
+            data = json.load(f)
+        self.message_history = data['message_history']
+        self.apiParams = data['apiParams']
+        self.localParams = data['localParams']
+        self.stateParams = data['stateParams']
+        return self
 
     def load_string(self, s: str) -> StatefulChat:
-        data = json_loads(s)
+        data = json.loads(s)
         self.message_history = data['message_history']
         self.apiParams = data['apiParams']
         self.localParams = data['localParams']
@@ -409,7 +461,7 @@ class StatefulChat(History, Entity):
             called = {
                 y['id']: {
                     'name': y['function']['name'],
-                    'arguments': json_loads(y['function']['arguments']),
+                    'arguments': json.loads(y['function']['arguments']),
                 }
                 for y in output['tool_calls']
             }
@@ -428,18 +480,19 @@ class StatefulChat(History, Entity):
                     if self.debug:
                         print('\t(called tool has no implementation; exiting)')
                     return {"name": v["name"], "arguments": v["arguments"]}
-                if ([*list(inspect_signature(called_tool.func).parameters), []])[0] == 'self':
+                if ([*list(inspect.signature(called_tool.func).parameters), []])[0] == 'self':
                     tool_output = called_tool(self, **v['arguments'])
                 else:
                     tool_output = called_tool(**v['arguments'])
                 if self.debug:
                     print('\t(output: ' + str(tool_output) + ')')
-                self.message_history.append({
-                    'role': 'tool',
-                    'tool_call_id': k,
-                    'name': v['name'],
-                    'content': json_dumps(tool_output),
-                })
+                if not kwargs.get("test"):
+                    self.message_history.append({
+                        'role': 'tool',
+                        'tool_call_id': k,
+                        'name': v['name'],
+                        'content': json.dumps(tool_output),
+                    })
             if self.get_state("yield_control"):
                 self.set_state("yield_control", False)
                 return self

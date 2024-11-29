@@ -1,21 +1,27 @@
 {
     "name": "code_diff",
+    "description": "A standardized and simple format for editing documents.",
     "strict": true,
-    "schema": {
+    "parameters": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["completions"],
+        "required": ["edits"],
         "properties": {
-            "completions": {
+            "edits": {
                 "type": "array",
+                "description": "An array of specified edits.",
                 "items": {
                     "type": "object",
                     "required": ["index","lines"],
                     "additionalProperties": false,
                     "properties": {
-                        "index": {"type": "integer"},
+                        "index": {
+                            "type": "integer",
+                            "description": "The index of a line to replace."
+                        },
                         "lines": {
                             "type": "array",
+                            "description": "An array of new lines. May be empty.",
                             "items": {"type": "string"}
                         }
                     }

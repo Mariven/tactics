@@ -1,13 +1,22 @@
 """
-Methods for text and chat completions, and agent wrapper classes
+Methods for text and chat completions
+
+Contains:
+    resolve
+        (id: str, mode: str) -> List[Tuple[str, str]]
+    completion
+        (options: Dict) -> Any
+    text_completion
+        (prompt: str, options: Dict) -> Any
+    chat_completion
+        (messages: str | List[Dict[str, str]], options: Dict) -> Any
+
 """
 from __future__ import annotations
 
 from .tools import *
 
-from datetime import datetime as datetime_datetime
-from time import time as time_time, sleep as time_sleep
-from os import path as os_path
+from datetime import datetime
 from tiktoken import get_encoding
 
 separator = "::"
@@ -15,16 +24,16 @@ separator = "::"
 # data/secrets.json format:
 # { secrets : [{ id : "openai", name : "OpenAI API Key", value : "sk-abcd..." }] }
 with open('data/secrets.json', encoding='utf-8') as f:
-    secrets_table = Dict(json_load(f))
+    secrets_table = Dict(json.load(f))
 
 keys = Dict({item.id : item.value for item in secrets_table.secrets})
 
 # { providers : [{ id : "openai", api: {url: "https://..."}, "models": [ {"id": "gpt-4o", "mode": "chat", ..., "parameters": [...]}, ...] }, ...] }
 with open('data/providers.json', encoding='utf-8') as f:
-    provider_table = Dict(json_load(f))
+    provider_table = Dict(json.load(f))
 
 # keys = {k: v['api']['key'] for k, v in provider_table.items()}
-clients = Dict()
+clients: Dict[str, OpenAI] = Dict()
 for provider in provider_table.providers:
     p_key_id = provider.api.get("key-secret")
     if p_key_id and p_key_id in keys and keys[p_key_id]:
@@ -46,7 +55,7 @@ for provider in provider_table.providers:
     if not provider.enabled:
         continue
     prov_name = provider.id
-    vars()[provider.id.replace('-','_')] = clients[provider.id]
+    vars()[provider.id.replace('-', '_')] = clients[provider.id]
     for model in provider.models:
         model_data = {"provider": provider.id} | model
         if model.get("disabled", False):
@@ -111,26 +120,92 @@ def completion(options: Dict) -> Any:
     :param options: Arguments to the completion model.
     :returns: The generated completion.
     """
-    # this function can take a LOT of arguments
-    # some of them go to the API to influence what is generated (apiParams)
-    # some of them influence how we deal with the generation (localParams)
-    # since APIs are finicky about extra arguments, we're going to fill these dicts in with options
-    # throwing away unrecognized keys
-    apiParams = Dict.fromkeys(['model', 'prompt', 'messages', 'suffix', 'max_tokens', 'stream', 'n', 'logprobs', 'top_logprobs', 'logit_bias', 'temperature', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'top_p', 'min_p', 'top_k', 'top_a', 'tools', 'tool_choice', 'parallel_tool_calls', 'grammar', 'json_schema', 'response_format', 'seed'], None)
-    localParams = Dict.fromkeys(['mode', 'provider', 'effect', 'callback', 'print_output', 'yield_output', 'return_output', 'debug', 'force_model', 'force_provider', 'return_raw', 'pretty_tool_calls', 'return_object'], None)
-    for (k, v) in options.items():
-        if k in apiParams and v is not None:
-            apiParams[k] = v
-        elif k in apiParams and v is None:
-            del apiParams[k]
-        if k in localParams and v is not None:
-            localParams[k] = v
-        elif k in localParams and v is None:
-            del localParams[k]
+    apiParamsList = [
+        "model",  #: str
+        # The model identifier to use for generating the completion.
+        "prompt",  #: str
+        # The initial text or prompt to generate a completion from.
+        "messages",  #: Union[str, List[Dict[str, str]]]
+        # The list of messages, or content of a single user message, to be passed to the API.
+        "suffix",  #: str
+        # A suffix to append to the generated text.
+        "max_tokens",  #: int
+        # The maximum number of tokens to generate.
+        "stream",  #: bool
+        # Whether to stream the output tokens as they are generated.
+        "n",  #: int
+        # The number of completions to generate.
+        "logprobs",  #: int
+        # The number of top log probabilities to return.
+        "top_logprobs",  #: int
+        # The number of top tokens to consider for log probabilities.
+        "logit_bias",  #: Dict[str, int]
+        # A dictionary mapping token IDs to bias values for logits.
+        "temperature",  #: float
+        # The sampling temperature to use for randomness in generation.
+        "presence_penalty",  #: float
+        # A penalty applied for presence of certain tokens.
+        "frequency_penalty",  #: float
+        # A penalty applied for frequency of certain tokens.
+        "repetition_penalty",  #: float
+        # A penalty applied to repeated tokens.
+        "top_p",  #: float
+        # The cumulative probability threshold for nucleus sampling.
+        "min_p",  #: float
+        # The minimum probability threshold for sampling.
+        "top_k",  #: int
+        # The number of top tokens to consider for sampling.
+        "top_a",  #: float
+        # The alpha parameter for top-a sampling.
+        "tools",  #: List[str]
+        # A list of tools available for use in the generation.
+        "tool_choice",  #: str
+        # The choice of tool to use for generation.
+        "parallel_tool_calls",  #: bool
+        # Whether to allow parallel execution of tool calls.
+        "grammar",  #: str
+        # A grammar specification for the generated text.
+        "json_schema",  #: Dict
+        # A JSON schema to validate the structure of the response.
+        "response_format",  #: Dict
+        # The format in which the response should be returned.
+        "seed",  #: int
+        # A seed value for random number generation in the model.
+    ]
+    localParamsList = [
+        "mode",  #: str
+        # The mode of operation, either 'text' or 'chat'.
+        "provider",  #: str
+        # The provider of the model.
+        "effect",  #: Callable
+        # A function to apply to the generated text.
+        "callback",  #: Callable
+        # A callback function to execute with the generated text.
+        "print_output",  #: bool
+        # Whether to print the output to the console.
+        "yield_output",  #: bool
+        # Whether to yield the output as a generator.
+        "return_output",  #: bool
+        # Whether to return the generated output.
+        "debug",  #: bool
+        # Whether to print debug information.
+        "force_model",  #: str
+        # A model identifier to forcefully use, overriding other selections.
+        "force_provider",  #: str
+        # A provider to forcefully use, overriding other selections.
+        "pretty_tool_calls",  #: bool
+        # Whether to format tool calls in a human-readable way.
+        "return_object",  #: bool
+        # Whether to return the full response object instead of just the text.
+        "use_parse",  #: bool
+        # Whether to use the parse endpoint for chat completions.
+    ]
+    apiParams = Dict.fromkeys(apiParamsList, None)
+    localParams = Dict.fromkeys(localParamsList, None)
+    apiParams = (apiParams & Dict(options).strip()).strip()
+    localParams = (localParams & Dict(options).strip()).strip()
     debug = localParams.get("debug", False)
-    for k in filter(apiParams.has, ['grammar', 'json_schema']):
-        if (val := apiParams.pop(k)) is not None:
-            apiParams["response_format"] = {"type": k, k: val}
+
     if localParams.get("mode") == "chat" and 'prompt' in apiParams:
         prompt = apiParams.pop('prompt')
         apiParams['messages'] = apiParams.get('messages') or prompt
@@ -139,14 +214,20 @@ def completion(options: Dict) -> Any:
     if localParams.get("mode") == "text" and 'messages' in apiParams:
         messages = apiParams.pop('messages')
         apiParams['prompt'] = apiParams.get('prompt') or messages
+
+    for k in filter(apiParams.has, ['grammar', 'json_schema']):
+        if (val := apiParams.pop(k)) is not None:
+            apiParams["response_format"] = {"type": k, k: val}
     if 'suffix' in apiParams and not apiParams.get('suffix'):
         del apiParams['suffix']
+
     ap = apiParams.get("top_logprobs", None)
     max_logprobs: int = 5
     # if type(ap) == int and ap > 5, we can do fun stuff
     # but if type(ap) == NoneType, we can't even do a > comparison
     if isinstance(ap, int) and ap > max_logprobs:
         apiParams["top_logprobs"] = max_logprobs
+
     selections = resolve(apiParams.get("model"), localParams.get("mode"))
     if len(selections) != 1:
         if localParams.get("provider"):
@@ -154,53 +235,59 @@ def completion(options: Dict) -> Any:
             if len(provided) >= 1:
                 selections = provided
         if len(selections) > 1:
-            raise Exception('No unique ' + localParams.get("mode") + ' model found for "' + apiParams.get("model", "") + '". (Possible: ' + ", ".join([separator.join(x) for x in selections]) + ")")
+            msg = f"No unique {localParams.get('mode')} model found for \"{apiParams.get('model', '')}\". (Possible: {', '.join([separator.join(x) for x in selections])})"
+            raise Exception(msg)
         if len(selections) == 0:
-            raise Exception('No ' + localParams.get("mode") + ' model found for "' + apiParams.get("model", "") + '".')
+            msg = f"No {localParams.get('mode')} model found for \"{apiParams.get('model', '')}\"."
+            raise Exception(msg)
     provider, apiParams["model"] = selections[0]
     model = apiParams["model"]
+
     effect, callback = localParams.get(["effect", "callback"])
     if not effect:
         effect = id
-    print_output = localParams.get("print_output", False)
-    yield_output = localParams.get("yield_output", False)
-    return_output = localParams.get("return_output", False)
-    return_raw = localParams.get("return_raw", False)
+    print_output = bool(localParams.get("print_output"))
+    yield_output = bool(localParams.get("yield_output"))
+    return_output = bool(localParams.get("return_output"))
+    return_object = bool(localParams.get("return_object"))
+    stream = bool(apiParams.get("stream"))
 
     # now we purge the sensitive (the ones in options) Nones from our dicts
-    apiParams = apiParams.filter(lambda _, v: v is not None)
-    localParams = localParams.filter(lambda _, v: v is not None)
+    apiParams = apiParams.strip()
+    localParams = localParams.strip()
     if force_model := localParams.get("force_model"):
         apiParams["model"] = force_model
     if force_provider := localParams.get("force_provider"):
         provider = force_provider
     if debug:
         print(apiParams, localParams, provider)
-    base = clients[provider].completions.create if localParams.get('mode') == 'text' else clients[provider].chat.completions.create
-    if localParams.get("mode") == "text":
+
+    if localParams.get('mode') == 'text':
+        base = clients[provider].completions.create
         retrieve = lambda y: y.choices[0].text
-    elif apiParams.get("stream"):
-        retrieve = lambda y: y.choices[0].delta.content
     else:
+        if localParams.get('use_parse'):
+            base = clients[provider].beta.chat.completions.parse
+        else:
+            base = clients[provider].chat.completions.create
         retrieve = lambda y: y.choices[0].message.content
+        if stream:
+            retrieve = lambda y: y.choices[0].delta.content
     unpack = lambda y: effect(retrieve(y))
-    if apiParams.get("stream"):
+
+    if stream:
         if yield_output:
             def gen() -> Optional[str]:
                 response = base(**apiParams)
-                if localParams.get('return_object'):
-                    return response
                 for obj in response:
+                    if return_object:
+                        yield obj
                     text = unpack(obj) or ''
                     if callback:
                         callback(text)
+                    if print_output:
+                        print(text, end="")
                     yield text
-            if localParams.get('return_object'):
-                return gen()
-            if not return_output:
-                for i in gen():
-                    print(i, end='')
-                return None
             return gen()
         result = ""
         response = base(**apiParams)
@@ -224,34 +311,40 @@ def completion(options: Dict) -> Any:
             def pretty(s: Any) -> str:
                 return str(s) if not isinstance(s, str) else f'"{s}"'
             for call in obj.choices[0].message.tool_calls:
-                line = f'\ntool_call(id={pretty(call.id)}): {call.function.name}({", ".join([k + "=" + pretty(v) for k, v in json_loads(call.function.arguments).items()])})'
+                line = f'\ntool_call(id={pretty(call.id)}): {call.function.name}({", ".join([k + "=" + pretty(v) for k, v in json.loads(call.function.arguments).items()])})'
                 result += line
                 if print_output and line:
                     print(line, end='')
                 if callback:
                     callback(result)
-        if return_output and not return_raw:
+        if return_output and not return_object:
             if debug:
                 print("Returning result of length " + str(len(result)))
             return result
-        if return_raw:
-            return obj
+        return obj
     return None
 
-def text_completion(prompt: str, options: Dict) -> Any:
+def text_completion(prompt: str, options: Dict = {}) -> Any:
     """
     Generates a text completion based on the provided prompt and arguments.
     :param prompt: Prompts to be provided to the chat completion model.
     :param options: Extra arguments to be provided.
     :returns: The generated text completion.
     """
-    params = {"mode": "text", "prompt": prompt, "model": "gpt-3.5-turbo-instruct", "temperature": 1.0, "top_p": 1.0, "max_tokens": 1024, "stream": True, "yield_output": True, "return_output": not options.get('stream', False), "print_output": options.get("stream", False)} | options
-    if params.get('messages') is not None:
-        options['prompt'] = options.get('prompt') | str(params.get('messages'))
-        del params['messages']
-    # if options.get('messages')!=None:
-    # 	options['prompt'] = options.get('prompt') | str(options.get('messages'))
-    # 	del options['messages']
+    params = Dict({
+        "mode": "text",
+        "prompt": prompt,
+        "model": "gpt-3.5-turbo-instruct",
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "max_tokens": 1024,
+        "stream": True,
+        "yield_output": True,
+        "return_output": not options.get("stream", False),
+        "print_output": options.get("stream", False),
+    }) | options
+    if (m := params.pop('messages')) is not None:
+        options['prompt'] = options.get('prompt') | str(m)
 
     response = completion(params)
     if response is None:
@@ -259,28 +352,38 @@ def text_completion(prompt: str, options: Dict) -> Any:
     if params.get('stream'):
         if params.get('yield_output'):
             return response  # Return the generator directly
-        # Consume the generator safely
+        # Else, consume the generator
         result = list(response)
         if result and params.get('return_output'):
             return ''.join(result)
         return None
     return response
 
-def chat_completion(messages: str | List[Dict[str, str]], options: Dict) -> Any:
+def chat_completion(messages: str | List[Dict[str, str]], options: Dict = {}) -> Any:
     """
     Generates a chat completion based on the provided messages and arguments.
     :param messages: Message log to be provided to the chat completion model.
     :param options: Extra arguments to be provided.
     :returns: The generated chat completion.
     """
-    params = {"mode": "chat", "messages": messages, "model": "openrouter" + separator + "gpt-4o", "temperature": 1.0, "top_p": 1.0, "max_tokens": 4096, "yield_output": True, "return_output": True} | options
-    # "tools": None,"tool_choice":None,"parallel_tool_calls":None,"response_format":None
-    if 'prompt' in params:
+    params = {
+        "mode": "chat",
+        "messages": messages,
+        "model": "openrouter" + separator + "gpt-4o",
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "max_tokens": 4096,
+        "yield_output": True,
+        "return_output": True
+    } | options
+    if options.get('prompt') and not params.get('messages'):
+        params['messages'] = [{'role': 'user', 'content': options['prompt']}]
         del params['prompt']
+    if isinstance(messages, str):
+        params['messages'] = [{'role': 'user', 'content': messages}]
     response = completion(params)
     if params.get('yield_output') and params.get('stream'):
-        return response  # Return the generator directly
-    # Consume the generator safely
+        return response
     result = list(response)
     if result and params.get('return_output'):
         return ''.join(result)

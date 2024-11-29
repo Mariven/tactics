@@ -9,10 +9,12 @@ Files:
  		- Allows for reading/writing tools to/from PNG images, like SillyTavern's character cards.
 	- `completion.py`
 		- A unified interface for text and chat completions with all OpenAI-compatible providers.
-	- `api.py`
+	- `server.py`
 		- Runs an API for persistent access to a customizable list of completion methods.
 	- `piping.py`
 		- Utilities for building complex workflows.
+	- `structure.py`
+	- `datamgmt.py`
 
 - `data/`
 	- `providers.json`

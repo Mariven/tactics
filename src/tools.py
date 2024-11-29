@@ -1,5 +1,63 @@
 """
 Tools and utilities for handling tools
+
+Contains:
+    class Tool
+        save_png
+            (self, image_file: str, tool_file: Optional[str]) -> str
+        save_py
+            (self, tool_file: Optional[str]) -> str
+        load_png
+            (self, tool_file: Optional[str]) -> Tool
+        load_py
+            (self, tool_file: Optional[str]) -> Tool
+        gen_schema
+            (self, func: Optional[Callable], hide: List[str]) -> Object
+        auto_schema
+            (self, func: Optional[Callable], provider_model: str, return_docstring: bool) -> Union[Object, str]
+        schema_from_string
+            (s: str) -> Object
+        describe
+            (self) -> Optional[str]
+        parse_schema
+            (self, K: Object, name: Optional[str], description: Optional[str]) -> Object
+    class Toolbox
+        append
+            (self, tool: Union[Tool, Callable]) -> None
+        remove
+            (self, tool_name: str) -> None
+        get_tool
+            (self, tool_name: str) -> Optional[Tool]
+        describe_all
+            (self) -> str
+    tools_object_from_string
+        (tool_string: str) -> List[Object]
+    gatekeep
+        (label: str, categories: Optional[List[str]], raise_error: bool) -> Callable
+    run_python
+        (code: str) -> Any
+    run_shell
+        (command: str) -> str
+    run_javascript
+        (code: str) -> str
+    exa_search
+        (query: str, num_results: int, snippets: int, snippet_sentences: int) -> List[Dict[str, Union[str, List[str]]]]
+    google_search
+        (query: str, num_results: int) -> List[Dict[str, Optional[str]]]
+    tokenize
+        (content: str, tokenizer: str, return_tokens: bool)-> Dict
+    get_contents
+        (url: str) -> Dict
+    get_html
+        (url: str) -> Dict
+    yield_control
+        (self, message: str) -> str
+    meditate
+        (self, prompt: str) -> str
+    ooda_planner
+        (observation: str, orientation: str, decision: str, action_plan: str) -> None
+    ask_human
+        (prompt: str) -> str
 """
 from __future__ import annotations
 
@@ -20,7 +78,7 @@ tool_ids = ["google-search", "google-cx-id", "exa", "jina"]
 # data/secrets.json format:
 # { data : [{ id : "openai", name : "OpenAI API Key", value : "sk-abcd..." }] }
 with open('data/secrets.json', encoding='utf-8') as f:
-	secrets_table = Dict(json_load(f))
+	secrets_table = Dict(json.load(f))
 
 keys_tools = {item.id : item.value for item in secrets_table.secrets if item.id in tool_ids}
 
@@ -78,6 +136,7 @@ class Tool:
                     self.schema = self.gen_schema(self.func)
             except Exception:
                 print(f'Warning: could not get schema for tool function {self.func.__name__}')
+                raise
 
     def save_png(self, image_file: str, tool_file: Optional[str] = None) -> str:
         """
@@ -110,7 +169,7 @@ class Tool:
             raise Exception(msg)
         image = Image.open(image_file)
         meta = PngImagePlugin.PngInfo()
-        meta.add_text("Schema", json_dumps(self.schema))
+        meta.add_text("Schema", json.dumps(self.schema))
         if self.source is None:
             self.source = inspect.getsource(self.func)
         meta.add_text("Source", self.source)
@@ -166,7 +225,7 @@ class Tool:
             func_name = func_ast.body[0].name
             self.func = local_dict[func_name]
         if "Schema" in meta:
-            self.schema = json_loads(meta["Schema"])
+            self.schema = json.loads(meta["Schema"])
         if self.schema is None:
             try:
                 self.schema = self.gen_schema(self.func)
@@ -219,9 +278,9 @@ class Tool:
             origin = get_origin(typ)
             args = get_args(typ)
 
-            if origin in {list, List, typing_List}:
+            if origin in {list, List, typing.List}:
                 return {"type": "array", "items": get_type_schema(args[0])}
-            if origin in {dict, Dict, typing_Dict}:
+            if origin in {dict, Dict, typing.Dict}:
                 return {
                     "type": "object",
                     "additionalProperties": get_type_schema(args[1]),
@@ -238,7 +297,7 @@ class Tool:
         if doc is None:
             raise Exception("Function docstring not found")
         description, *controls = (re.sub(r'^\s+', '', x).strip() for x in re.split(r'\n[\s\t]*?\:', doc))
-        description = re.sub([*re.findall("^(\\s+)", description), "\n"][0], '\n', description).strip()
+        description = re.sub([*re.findall(r"^(\s+)", description), "\n"][0], '\n', description).strip()
         param_descriptions = {}
         for c in controls:
             if c.startswith('schema:'):
@@ -352,8 +411,8 @@ class Tool:
             raise Exception(msg)
         # print(L.groups())
         required_args = [i.strip().split(':')[0] for i in arg_types.split(',') if '=' not in i]
-        arg_types = {i: {'int': 'integer', 'list': 'array', 'dict': 'object', 'str': 'string', 'bool': 'boolean', 'callable': 'function'}[j.lower()] for (i, j) in re.findall('([A-Za-z_0-9]+): ?([A-Za-z]+)', arg_types)}
-        arg_descs = dict([re.match('(?::param )?([A-Za-z_0-9]+): (.*)', i).groups() for i in arg_descs.strip().split('\n')])
+        arg_types = {i: {'int': 'integer', 'list': 'array', 'dict': 'object', 'str': 'string', 'bool': 'boolean', 'callable': 'function'}[j.lower()] for (i, j) in re.findall(r'([A-Za-z_0-9]+): ?([A-Za-z]+)', arg_types)}
+        arg_descs = dict([re.match(r'(?::param )?([A-Za-z_0-9]+): (.*)', i).groups() for i in arg_descs.strip().split('\n')])
         args = list(arg_types.keys())
         return {'type': 'function', 'function': {'name': func_name, 'description': func_desc, 'parameters': {'type': 'object', 'properties': {i: {'type': arg_types[i], 'description': arg_descs[i]} for i in args}, 'required': required_args}}}
 
@@ -597,7 +656,7 @@ def gatekeep(label: str, categories: Optional[List[str]] = None, raise_error: bo
         categories = ["harmful", "bugged"]
 
     def decorator(func: Callable) -> Callable:
-        @functools_wraps(func)
+        @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             if not os.environ.get('OPENAI_API_KEY'):
                 raise Exception('OpenAI API key must be in local environment for gatekeeping to run.')
@@ -628,7 +687,7 @@ def gatekeep(label: str, categories: Optional[List[str]] = None, raise_error: bo
             )
 
             try:
-                result = json_loads(response.choices[0].message.content)
+                result = json.loads(response.choices[0].message.content)
             except Exception as e:
                 raise Exception("Gatekeeper failed to process object.") from e
 
@@ -720,7 +779,7 @@ def google_search(query: str, num_results: int = 10) -> List[Dict[str, Optional[
     if req.status_code != HTTP_SUCCESS:
         msg = f"Google search failed with status code {req.status_code}"
         raise Exception(msg)
-    results = json_loads(req.text)['items']
+    results = json.loads(req.text)['items']
     new_results = []
     for obj in results:
         new_obj = {'url': obj['link'], 'title': obj['title']}

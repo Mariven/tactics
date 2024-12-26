@@ -16,14 +16,14 @@ Contains:
     class Relation(Node, Entity)
         spawn               (self) -> Message
         update              (self) -> None
-        _construct_message_chain     (self) -> List[Dict[str, str]]
+        _construct_message_chain     (self) -> list[dict[str, str]]
 
     class Message(Node, Entity)
         add_node            (self, node: Node) -> Node
         _get_last_node      (self) -> Node
 
     class Network(Entity)
-        add_message         (self, content: str, role: Role, created_by: Optional[ModelInstance], callback: Optional[Callable]) -> Message
+        add_message         (self, content: str, role: Role, created_by: ModelInstance | None, callback: Callable | None) -> Message
         generate_response   (self) -> Message
 
     class ModelInstance(Node, Entity)
@@ -35,7 +35,7 @@ Contains:
         get_state           (self, key, default=None) -> Any
         first               (self) -> Any
         last                (self) -> Any
-        messages            (self) -> List[Dict[str, str]]
+        messages            (self) -> list[dict[str, str]]
         undo                (self, n: int) -> StatefulChat
         redo                (self) -> StatefulChat
         save                (self, path: str) -> StatefulChat
@@ -51,15 +51,12 @@ Contains:
         run                 (self, **kwargs) -> None
 """
 from __future__ import annotations
-from .completion import *
 
-class Role(Enum):
-    """Enum class to represent different roles in the conversation."""
-    SYSTEM = 'system'
-    USER = 'user'
-    ASSISTANT = 'assistant'
-    FUNCTION = 'function'
-    TOOL = 'tool'
+from src.basetypes import *  # re, typing
+from src.supertypes import *  # builtins, functools, inspect, itertools, operator, logging
+from src.utilities import *  # datetime, json, os, sqlite3, time, types, random, requests
+from src.tools import *  # ast
+from src.completion import *
 
 # Usage example:
 # async def main():
@@ -98,16 +95,16 @@ class Entity:
 class Node(Entity):
     """Base class for network nodes."""
     def __init__(self,
-        parents: Optional[List[Node]] = None,
-        children: Optional[List[Node]] = None,
-        callback: Optional[Callable] = None,
+        parents: list[Node] | None = None,
+        children: list[Node] | None = None,
+        callback: Callable | None = None,
         **data: Any,
     ) -> None:
-        self.parents: List[Node] = parents or []
-        self.children: List[Node] = children or []
-        self.data: Dict[str, Any] = data
+        self.parents: list[Node] = parents or []
+        self.children: list[Node] = children or []
+        self.data: dict[str, Any] = data
         self.depth: int = self.get_depth()
-        self.callback: Optional[Callable] = callback
+        self.callback: Callable | None = callback
 
     def get_depth(self) -> int:
         """Calculate the depth of the node in the network."""
@@ -144,15 +141,15 @@ class Message(Node, Entity):
     """Represents a message in the conversation."""
     def __init__(self,
         content: str,
-        role: Role,
-        created_by: Optional[ModelInstance] = None,
-        callback: Optional[Callable] = None,
+        role: str,
+        created_by: ModelInstance | None = None,
+        callback: Callable | None = None,
         **data: Any,
     ) -> None:
         super(Node, self).__init__(callback=callback, **data)
         self.content: str = content
-        self.role: Role = role
-        self.created_by: Optional[ModelInstance] = created_by
+        self.role: str = role
+        self.created_by: ModelInstance | None = created_by
 
     def __str__(self) -> str:
         return f"{self.role.value}: {self.content}"
@@ -160,7 +157,7 @@ class Message(Node, Entity):
     @log_and_callback
     async def spawn(self) -> Message:
         """Create a new message as a response to this message."""
-        new_message = Message(content="", role=Role.ASSISTANT, created_by=self.created_by, callback=self.callback)
+        new_message = Message(content="", role="assistant", created_by=self.created_by, callback=self.callback)
         self.add_child(new_message)
         return new_message
 
@@ -195,10 +192,10 @@ class Message(Node, Entity):
             for k in self.data['usage']
         ), 10)
 
-    def _construct_message_chain(self) -> List[Dict[str, str]]:
+    def _construct_message_chain(self) -> list[dict[str, str]]:
         """Construct the chain of messages for the conversation context."""
         messages = []
-        current: Optional[Message] = self
+        current: Message | None = self
         while current:
             messages.insert(0, {"role": current.role.value, "content": current.content})
             current = current.parents[0] if current.parents else None
@@ -206,8 +203,8 @@ class Message(Node, Entity):
 
 class Network(Entity):
     """Represents a network of nodes."""
-    def __init__(self, root: Optional[Node] = None) -> None:
-        self.root: Optional[Node] = root
+    def __init__(self, root: Node | None = None) -> None:
+        self.root: Node | None = root
 
     async def add_node(self, node: Node) -> Node:
         """Add a new node to the network."""
@@ -230,7 +227,7 @@ class Network(Entity):
 
 class History(Network, Entity):
     """Represents a conversation history as a specialized network of messages."""
-    async def add_message(self, content: str, role: Role, created_by: Optional[ModelInstance] = None, callback: Optional[Callable] = None) -> Message:
+    async def add_message(self, content: str, role: str, created_by: ModelInstance | None = None, callback: Callable | None = None) -> Message:
         """Add a new message to the conversation history."""
         new_message = Message(content, role, created_by, callback)
         return await self.add_node(new_message)
@@ -246,12 +243,12 @@ class History(Network, Entity):
 
 class ModelInstance(Node, Entity):
     """Represents an instance of an AI model."""
-    def __init__(self, client: Any, provider: str, model: str, callback: Optional[Callable] = None) -> None:
+    def __init__(self, client: Any, provider: str, model: str, callback: Callable | None = None) -> None:
         super().__init__(callback=callback)
         self.client: Any = client
         self.provider: str = provider
         self.model: str = model
-        self.token_costs: Dict[str, float] = model_data[provider][model]['token_costs']
+        self.token_costs: dict[str, float] = model_data[provider][model]['token_costs']
 
     @log_and_callback
     async def spawn(self) -> ModelInstance:
@@ -270,55 +267,55 @@ class StatefulChat(History, Entity):
         self.tools: list = []
         self.debug: bool = False
         self.first_run: bool = True
-        self.apiParams: dict = dict.fromkeys(['model', 'suffix', 'max_tokens', 'stream', 'n', 'logprobs', 'top_logprobs', 'logit_bias', 'temperature', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'top_p', 'min_p', 'top_k', 'top_a', 'tools', 'tool_choice', 'parallel_tool_calls', 'grammar', 'json_schema', 'response_format', 'seed'], None)
-        self.localParams = {"mode": "chat", "return_raw": True, "pretty_tool_calls": False} | dict.fromkeys(['provider', 'force_model', 'force_provider', 'effect', 'callback', 'print_output', 'yield_output', 'return_output', 'debug', 'return_object'], None)
+        self.api_params: dict = dict.fromkeys(['model', 'suffix', 'max_tokens', 'stream', 'n', 'logprobs', 'top_logprobs', 'logit_bias', 'temperature', 'presence_penalty', 'frequency_penalty', 'repetition_penalty', 'top_p', 'min_p', 'top_k', 'top_a', 'tools', 'tool_choice', 'parallel_tool_calls', 'grammar', 'json_schema', 'response_format', 'seed'], None)
+        self.local_params = {"mode": "chat", "return_raw": True, "pretty_tool_calls": False} | dict.fromkeys(['provider', 'force_model', 'force_provider', 'effect', 'callback', 'print_output', 'yield_output', 'return_output', 'debug', 'return_object'], None)
         self.stateParams: dict = {}
         for (k, v) in kwargs.items():
-            if k in self.apiParams:
+            if k in self.api_params:
                 if k == 'tools':
-                    self.apiParams['tools'] = []
+                    self.api_params['tools'] = []
                     if isinstance(v, Toolbox):
                         v = v.tools
                     for i in v:
                         if isinstance(i, Tool):
                             self.tools.append(i)
-                            self.apiParams['tools'].append(i.schema)
+                            self.api_params['tools'].append(i.schema)
                         elif callable(i):
                             try:
                                 self.tools.append(Tool(i))
-                                self.apiParams['tools'].append(self.tools[-1].schema)
+                                self.api_params['tools'].append(self.tools[-1].schema)
                             except Exception:
                                 print('Warning: could not instantiate tool from callable ' + i.__name__ + '  (' + str(i) + '), discarding')
-                        elif type(i) in {dict, Dict}:
-                            self.apiParams['tools'].append(i)
+                        elif is_type(i, dict):
+                            self.api_params['tools'].append(i)
                         else:
                             print('Warning: Could not recognize object ' + str(i) + ' of type ' + str(type(i)) + ' as a tool, discarding')
-                    if self.apiParams['tools'] == []:
-                        self.apiParams['tools'] = None
+                    if self.api_params['tools'] == []:
+                        self.api_params['tools'] = None
                     if self.tools == []:
                         self.tools = None
                 else:
-                    self.apiParams[k] = v
-            elif k in self.localParams:
+                    self.api_params[k] = v
+            elif k in self.local_params:
                 if k == "debug":
                     self.debug = v
                 else:
-                    self.localParams[k] = v
+                    self.local_params[k] = v
             else:
                 self.stateParams[k] = v
 
     def __getitem__(self, key) -> Any:
-        if key in self.apiParams:
-            return self.apiParams[key]
-        if key in self.localParams:
-            return self.localParams[key]
+        if key in self.api_params:
+            return self.api_params[key]
+        if key in self.local_params:
+            return self.local_params[key]
         return self.stateParams.get(key, None)
 
     def __setitem__(self, key, value) -> None:
-        if key in self.apiParams:
-            self.apiParams[key] = value
-        elif key in self.localParams:
-            self.localParams[key] = value
+        if key in self.api_params:
+            self.api_params[key] = value
+        elif key in self.local_params:
+            self.local_params[key] = value
         else:
             self.stateParams[key] = value
 
@@ -342,7 +339,7 @@ class StatefulChat(History, Entity):
         return Dict(self.message_history[-1])
 
     @property
-    def messages(self) -> List[Dict[str, str]]:
+    def messages(self) -> list[dict[str, str]]:
         return List(self.message_history)
 
     def undo(self, n: int = 1) -> StatefulChat:
@@ -358,8 +355,8 @@ class StatefulChat(History, Entity):
         with open(path, 'w') as f:
             json.dump({
                     'message_history': self.message_history,
-                    'apiParams': self.apiParams,
-                    'localParams': self.localParams,
+                    'api_params': self.api_params,
+                    'local_params': self.local_params,
                     'stateParams': self.stateParams,
                 }, f)
         return self
@@ -367,8 +364,8 @@ class StatefulChat(History, Entity):
     def save_string(self) -> str:
         return json.dumps({
                 'message_history': self.message_history,
-                'apiParams': self.apiParams,
-                'localParams': self.localParams,
+                'api_params': self.api_params,
+                'local_params': self.local_params,
                 'stateParams': self.stateParams,
             })
 
@@ -376,24 +373,24 @@ class StatefulChat(History, Entity):
         with open(path) as f:
             data = json.load(f)
         self.message_history = data['message_history']
-        self.apiParams = data['apiParams']
-        self.localParams = data['localParams']
+        self.api_params = data['api_params']
+        self.local_params = data['local_params']
         self.stateParams = data['stateParams']
         return self
 
     def load_string(self, s: str) -> StatefulChat:
         data = json.loads(s)
         self.message_history = data['message_history']
-        self.apiParams = data['apiParams']
-        self.localParams = data['localParams']
+        self.api_params = data['api_params']
+        self.local_params = data['local_params']
         self.stateParams = data['stateParams']
         return self
 
     def clone(self, **kwargs) -> StatefulChat:
         new = StatefulChat()
         new.message_history = self.message_history.copy()
-        new.apiParams = self.apiParams.copy()
-        new.localParams = self.localParams.copy()
+        new.api_params = self.api_params.copy()
+        new.local_params = self.local_params.copy()
         new.stateParams = self.stateParams.copy()
         new.tools = self.tools.copy()
         for k, v in kwargs.items():
@@ -429,11 +426,11 @@ class StatefulChat(History, Entity):
                 for message in self.message_history:
                     print(f'{message["role"]}: {message["content"]}')
             self.first_run = False
-        # if self.apiParams.get('tools'):
+        # if self.api_params.get('tools'):
         # 	tools = []
         response = completion(
             {"messages": self.message_history} |
-            (self.apiParams | self.localParams | {"return_raw": True} | kwargs),
+            (self.api_params | self.local_params | {"return_raw": True} | kwargs),
         )
         if kwargs.get('return_response') or kwargs.get('return_object'):
             return response
@@ -466,7 +463,7 @@ class StatefulChat(History, Entity):
                 for y in output['tool_calls']
             }
             for (k, v) in called.items():
-                if self.localParams.get("print_output"):
+                if self.local_params.get("print_output"):
                     print(f'Calling {v["name"]} with arguments {v["arguments"]}')
                 called_tool = None
                 if self.debug:

@@ -1,91 +1,55 @@
 """
 Tools and utilities for handling tools
-
 Contains:
     class Tool
-        save_png
-            (self, image_file: str, tool_file: Optional[str]) -> str
-        save_py
-            (self, tool_file: Optional[str]) -> str
-        load_png
-            (self, tool_file: Optional[str]) -> Tool
-        load_py
-            (self, tool_file: Optional[str]) -> Tool
-        gen_schema
-            (self, func: Optional[Callable], hide: List[str]) -> Object
-        auto_schema
-            (self, func: Optional[Callable], provider_model: str, return_docstring: bool) -> Union[Object, str]
-        schema_from_string
-            (s: str) -> Object
-        describe
-            (self) -> Optional[str]
-        parse_schema
-            (self, K: Object, name: Optional[str], description: Optional[str]) -> Object
+        save_png             (self, image_file: str, tool_file: str | None) -> str
+        save_py              (self, tool_file: str | None) -> str
+        load_png             (self, tool_file: str | None) -> Tool
+        load_py              (self, tool_file: str | None) -> Tool
+        gen_schema           (self, func: Callable | None, hide: list[str]) -> Object
+        auto_schema          (self, func: Callable | None, provider_model: str, return_docstring: bool) -> Object | str
+        schema_from_string   (self, s: str) -> Object
+        describe             (self) -> str | None
+        parse_schema         (self, K: Object, name: str | None, description: str | None) -> Object
     class Toolbox
-        append
-            (self, tool: Union[Tool, Callable]) -> None
-        remove
-            (self, tool_name: str) -> None
-        get_tool
-            (self, tool_name: str) -> Optional[Tool]
-        describe_all
-            (self) -> str
-    tools_object_from_string
-        (tool_string: str) -> List[Object]
-    gatekeep
-        (label: str, categories: Optional[List[str]], raise_error: bool) -> Callable
-    run_python
-        (code: str) -> Any
-    run_shell
-        (command: str) -> str
-    run_javascript
-        (code: str) -> str
-    exa_search
-        (query: str, num_results: int, snippets: int, snippet_sentences: int) -> List[Dict[str, Union[str, List[str]]]]
-    google_search
-        (query: str, num_results: int) -> List[Dict[str, Optional[str]]]
-    tokenize
-        (content: str, tokenizer: str, return_tokens: bool)-> Dict
-    get_contents
-        (url: str) -> Dict
-    get_html
-        (url: str) -> Dict
-    yield_control
-        (self, message: str) -> str
-    meditate
-        (self, prompt: str) -> str
-    ooda_planner
-        (observation: str, orientation: str, decision: str, action_plan: str) -> None
-    ask_human
-        (prompt: str) -> str
+        append               (self, tool: Tool | Callable) -> None
+        remove               (self, tool_name: str) -> None
+        get_tool             (self, tool_name: str) -> Tool | None
+        describe_all         (self) -> str
+    tools_object_from_string (tool_string: str) -> list[Object]
+    gatekeep                 (label: str, categories: list[str] | None, raise_error: bool) -> Callable
+    run_python               (code: str) -> Any
+    run_shell                (command: str) -> str
+    run_javascript           (code: str) -> str
+    exa_search               (query: str, num_results: int, snippets: int, snippet_sentences: int) -> list[dict[str, str | list[str]]]
+    google_search            (query: str, num_results: int) -> list[dict[str, str]] | None
+    tokenize                 (content: str, tokenizer: str, return_tokens: bool)-> dict
+    get_contents             (url: str) -> dict
+    get_html                 (url: str) -> dict
+    yield_control            (self, message: str) -> str
+    meditate                 (self, prompt: str) -> str
+    ooda_planner             (observation: str, orientation: str, decision: str, action_plan: str) -> None
+    ask_human                (prompt: str) -> str
+    think                    (issue: str) -> None
 """
 from __future__ import annotations
 
-from .utilities import *
+from src.basetypes import *  # re, typing
+from src.supertypes import *  # builtins, functools, inspect, itertools, operator, logging
+from src.utilities import *  # datetime, json, os, sqlite3, time, types, random, requests
 
 import ast
-import inspect
-import os
-import re
-import requests
-from exa_py.api import Exa
-from openai import OpenAI
-from PIL import Image, PngImagePlugin
-from subprocess import Popen as subprocess_Popen, PIPE as subprocess_PIPE, run as subprocess_run
+import subprocess
+from openai import OpenAI, RateLimitError
 
 tool_ids = ["google-search", "google-cx-id", "exa", "jina"]
 
 # data/secrets.json format:
 # { data : [{ id : "openai", name : "OpenAI API Key", value : "sk-abcd..." }] }
 with open('data/secrets.json', encoding='utf-8') as f:
-	secrets_table = Dict(json.load(f))
+    secrets_table = Dict(json.load(f))
 
 keys_tools = {item.id : item.value for item in secrets_table.secrets if item.id in tool_ids}
-
-clients_tools = {
-    "exa": Exa(api_key=keys_tools['exa']),
-}
-
 
 """
 Class: Tool
@@ -105,17 +69,17 @@ Methods:
 """
 class Tool:
     """Wrapper for tools"""
-    def __init__(self, tool_file_or_function: Optional[Any] = None, load_passive: bool = False) -> None:
+    def __init__(self, tool_file_or_function: Any | None = None, load_passive: bool = False) -> None:
         """
         Initialize a Tool object.
         :param tool_file_or_function: Either a file path (str) or a callable function.
         :param load_passive: If True, don't automatically load the tool file.
         """
-        self.schema: Optional[dict] = None
-        self.source: Optional[str] = None
-        self.func: Optional[Callable] = None
+        self.schema: dict | None = None
+        self.source: str | None = None
+        self.func: Callable | None = None
         self.empty: bool = False
-        self.tool_file: Optional[str] = None
+        self.tool_file: str | None = None
         if isinstance(tool_file_or_function, str):
             self.tool_file = tool_file_or_function
             if not load_passive:
@@ -138,7 +102,7 @@ class Tool:
                 print(f'Warning: could not get schema for tool function {self.func.__name__}')
                 raise
 
-    def save_png(self, image_file: str, tool_file: Optional[str] = None) -> str:
+    def save_png(self, image_file: str, tool_file: str | None = None) -> str:
         """
         Save the tool function as a PNG file with embedded schema and source code.
         :param image_file: The path of the image file to save.
@@ -146,6 +110,7 @@ class Tool:
         :returns: The path of the saved tool file.
         :raises Exception: If no tool file is specified or if the image file is not a PNG.
         """
+        from PIL import Image, PngImagePlugin
         if tool_file is None:
             if self.tool_file is None:
                 raise Exception("Tool file to save to not specified")
@@ -176,7 +141,7 @@ class Tool:
         image.save(tool_file, "PNG", pnginfo=meta)
         return tool_file
 
-    def save_py(self, tool_file: Optional[str] = None) -> str:
+    def save_py(self, tool_file: str | None = None) -> str:
         """
         Save the tool function as a Python file.
         :param tool_file: Optional file path to save to. If None, uses self.tool_file.
@@ -197,13 +162,14 @@ class Tool:
             f.write(self.source)
         return tool_file
 
-    def load_png(self, tool_file: Optional[str] = None) -> Tool:
+    def load_png(self, tool_file: str | None = None) -> Tool:
         """
         Load a tool function from a PNG file.
         :param tool_file: Optional file path to load from. If None, uses self.tool_file.
         :returns: The Tool instance.
         :raises Exception: If no tool file is specified or if schema retrieval fails.
         """
+        from PIL import Image, PngImagePlugin
         if tool_file is None:
             if self.tool_file is None:
                 raise Exception("Tool file to load from not specified")
@@ -233,7 +199,7 @@ class Tool:
                 raise Exception("Could not retrieve schema from function object") from e
         return self
 
-    def load_py(self, tool_file: Optional[str] = None) -> Tool:
+    def load_py(self, tool_file: str | None = None) -> Tool:
         """
         Load a tool function from a Python file.
         :param tool_file: Optional file path to load from. If None, uses self.tool_file.
@@ -242,7 +208,7 @@ class Tool:
         """
         if tool_file is None:
             if self.tool_file is None:
-                    raise Exception("Tool file to load from not specified")
+                raise Exception("Tool file to load from not specified")
             tool_file = self.tool_file
         if not tool_file.endswith('.py'):
             raise Exception("Tool file must be a Python file")
@@ -261,7 +227,7 @@ class Tool:
         return self
 
     # gen_schema will work on any function f with head provided by auto_schema(f, return_docstring=True)
-    def gen_schema(self, func: Optional[Callable] = None, hide: List[str] = ["self"]) -> Object:
+    def gen_schema(self, func: Callable | None = None, hide: list[str] = ["self"]) -> Object:
         """
         Generates a JSON schema for a given function based on its signature and docstring.
         :param func: The function for which to generate the schema.
@@ -274,25 +240,25 @@ class Tool:
             except Exception as e:
                 raise Exception("Could not retrieve function for gen_schema call") from e
 
-        def get_type_schema(typ) -> Dict:
-            origin = get_origin(typ)
-            args = get_args(typ)
+        def get_type_schema(T) -> dict:
+            origin = get_origin(T)
+            args = get_args(T)
 
-            if origin in {list, List, typing.List}:
+            if is_type(origin, list):
                 return {"type": "array", "items": get_type_schema(args[0])}
-            if origin in {dict, Dict, typing.Dict}:
+            if is_type(origin, dict):
                 return {
                     "type": "object",
                     "additionalProperties": get_type_schema(args[1]),
                 }
-            if origin is Union:
+            if isinstance(origin, (types.UnionType, typing._UnionGenericAlias)):
                 return {"oneOf": [get_type_schema(arg) for arg in args]}
             return {"type": {
                 int: "integer",
                 str: "string",
                 float: "number",
                 bool: "boolean",
-            }.get(typ, "string")}
+            }.get(T, "string")}
         doc = func.__doc__
         if doc is None:
             raise Exception("Function docstring not found")
@@ -331,7 +297,7 @@ class Tool:
             self.schema = schema
         return schema
 
-    def auto_schema(self, func: Optional[Callable] = None, provider_model: str = "beta:coder", return_docstring: bool = False) -> Union[Object, str]:
+    def auto_schema(self, func: Callable | None = None, provider_model: str = "beta:coder", return_docstring: bool = False) -> Object | str:
         """
         Generates a tool schema for a given function based on its signature and inferred purpose.
         :param func: The function for which to generate the schema.
@@ -339,6 +305,7 @@ class Tool:
         :param return_docstring: Whether to return the generated docstring instead of the schema. Defaults to False.
         :returns: A dictionary representing the tool schema of the function, or a string containing the docstring if return_docstring is True.
         """
+        from src.completion import text_completion
         if func is None:
             try:
                 func = self.func
@@ -429,7 +396,7 @@ class Tool:
             raise Exception("Can't call tool method as tool is empty!")
         return self.func(*args, **kwargs)
 
-    def describe(self) -> Optional[str]:
+    def describe(self) -> str | None:
         """
         Generate a description of the tool based on its schema.
 
@@ -440,7 +407,7 @@ class Tool:
         params = "\n\t".join([v["type"] + " " + k + ": " + v["description"] for k, v in self.schema["function"]["parameters"]["properties"].items()])
         return f'Tool {self.schema["function"]["name"]}({", ".join(list(self.schema["function"]["parameters"]["properties"]))}): {self.schema["function"]["description"]}\n\t{params}'
 
-    def parse_schema(self, K: Object, name: Optional[str] = None, description: Optional[str] = None) -> Object:
+    def parse_schema(self, K: Object, name: str | None = None, description: str | None = None) -> Object:
         # shortcut for compressing long tool schemas
         # example:
         # x = {'list edits': {'': "A list of edits",
@@ -449,7 +416,7 @@ class Tool:
         # "list lines": {'': "New lines to insert here",
         # "str line": ''}}}}
         # Agent.tools.append(parse_schema(x, "line_editor", "Edit some lines in the present document"))
-        def interp(s) -> (bool, str, str):
+        def interp(s) -> tuple[bool, str, str]:
             s = s.strip()
             s2 = re.sub(r'(?:\w*)\?? ?[\W]*(\w+)[\W]*', r'\1', s)
             if len(s2) == 0:
@@ -497,7 +464,7 @@ class Tool:
 
 class Toolbox:
     """A collection of tools"""
-    def __init__(self, tools: List[Union[Tool, Callable]] = None) -> None:
+    def __init__(self, tools: list[Tool | Callable] | None = None) -> None:
         """
         Initialize a Toolbox with a list of tools.
 
@@ -505,8 +472,8 @@ class Toolbox:
         """
         if tools is None:
             tools = []
-        self.tools: List[Tool] = []
-        self.tool_dict: Dict[str, Tool] = {}
+        self.tools: list[Tool] = []
+        self.tool_dict: dict[str, Tool] = {}
         for t in tools:
             if isinstance(t, Tool):
                 self.tools.append(t)
@@ -521,7 +488,7 @@ class Toolbox:
             else:
                 print('Warning: Could not recognize object ' + str(t) + ' of type ' + str(type(t)) + ' as a tool, discarding')
 
-    def append(self, tool: Union[Tool, Callable]) -> None:
+    def append(self, tool: Tool | Callable) -> None:
         """
         Add a new tool to the Toolbox.
 
@@ -545,7 +512,7 @@ class Toolbox:
             tool = self.tool_dict.pop(tool_name)
             self.tools.remove(tool)
 
-    def get_tool(self, tool_name: str) -> Optional[Tool]:
+    def get_tool(self, tool_name: str) -> Tool | None:
         """
         Get a tool from the Toolbox by its name.
 
@@ -561,6 +528,13 @@ class Toolbox:
         :returns: A string containing descriptions of all tools.
         """
         return "\n".join([tool.describe() for tool in self.tools])
+
+    def gen_schema(self) -> list[Object]:
+        """
+        Generate a schema for the Toolbox.
+        :returns: A list of dictionaries, each representing a tool's details parsed from the input string.
+        """
+        return [tool.schema for tool in self.tools]
 
     def __call__(self, tool_name: str, *args: Any, **kwargs: Any) -> Any:
         """
@@ -626,7 +600,7 @@ class Toolbox:
         return f"Toolbox({', '.join([tool.schema['function']['name'] for tool in self.tools])})"
 
 
-def tools_object_from_string(tool_string: str) -> List[Object]:
+def tools_object_from_string(tool_string: str) -> list[Object]:
     """
     Converts a string representation of tools into a list of dictionaries.
     :param tool_string: A string where each tool's details are separated by newlines, and nested details are indented with tabs.
@@ -638,13 +612,13 @@ def tools_object_from_string(tool_string: str) -> List[Object]:
             current.append(i)
         else:
             if (s := '\n'.join(current)):
-                tools.append(schema_from_string(s))
+                tools.append(Tool.schema_from_string(s))
             current = [i]
     if (s := '\n'.join(current)):
-        tools.append(schema_from_string(s))
+        tools.append(Tool.schema_from_string(s))
     return tools
 
-def gatekeep(label: str, categories: Optional[List[str]] = None, raise_error: bool = True) -> Callable:
+def gatekeep(label: str, categories: list[str] | None = None, raise_error: bool = True) -> Callable:
     """
     A decorator factory for gatekeeping function execution based on specified categories.
     :param label: A label describing the type of object (e.g., "python code").
@@ -730,7 +704,7 @@ def run_shell(command: str) -> str:
     :param command: The shell command to execute
     :returns: The result of the execution
     """
-    process = subprocess_Popen(command, shell=True, stdout=subprocess_PIPE, stderr=subprocess_PIPE)
+    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
     return stdout.decode() + stderr.decode()
 
@@ -747,7 +721,7 @@ def run_javascript(code: str) -> str:
     return "JavaScript execution not implemented yet."
 
 @Tool
-def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sentences: int = 1) -> List[Dict[str, Union[str, List[str]]]]:
+def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sentences: int = 1) -> list[dict[str, str | list[str]]]:
     """
     Performs an Exa.ai neural search on a query. Useful for finding interesting long-form content (e.g. scientific papers, blog posts, articles) on a variety of topics.
     :param query: The search query string.
@@ -756,7 +730,10 @@ def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sen
     :param snippet_sentences: The number of sentences per highlight snippet. Default is 1.
     :returns: A list of dictionaries containing formatted search results with keys 'url', 'title', 'date', 'snippet', and optionally 'author'.
     """
-    results = regularize(clients_tools['exa'].search_and_contents(query=query, num_results=num_results, highlights={"num_sentences": snippet_sentences, "highlights_per_url": snippets}))['results']
+    from exa_py.api import Exa
+    exa_key = keys_tools['exa']
+    exa = Exa(api_key=exa_key)
+    results = regularize(exa.search_and_contents(query=query, num_results=num_results, highlights={"num_sentences": snippet_sentences, "highlights_per_url": snippets}))['results']
     new_results = []
     for obj in results:
         new_obj = {'url': obj['url'], 'title': obj['title'], 'date': obj['published_date'], 'snippet': [x.strip() for x in obj['highlights']]}
@@ -766,7 +743,7 @@ def exa_search(query: str, num_results: int = 10, snippets: int = 3, snippet_sen
     return new_results
 
 @Tool
-def google_search(query: str, num_results: int = 10) -> List[Dict[str, Optional[str]]]:
+def google_search(query: str, num_results: int = 10) -> list[dict[str, str | None]]:
     """
     Performs a Google search on a query and returns a list of simplified search result objects.
     :param query: The search query string.
@@ -789,7 +766,7 @@ def google_search(query: str, num_results: int = 10) -> List[Dict[str, Optional[
     return new_results
 
 @Tool
-def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = False) -> Dict:
+def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = False) -> dict:
     """
     Tokenize content using Jina AI's tokenization API.
     :param content: The text content to tokenize.
@@ -813,7 +790,7 @@ def tokenize(content: str, tokenizer: str = "o200k_base", return_tokens: bool = 
     return response.json()
 
 @Tool
-def get_contents(url: str) -> Dict:
+def get_contents(url: str) -> dict:
     """
     Fetch human-readable webpage contents using Jina AI's API.
     :param url: The URL of the webpage to analyze.
@@ -832,14 +809,17 @@ def get_contents(url: str) -> Dict:
     return response.json()
 
 @Tool
-def get_html(url: str) -> Dict:
+def get_html(url: str) -> dict:
     """
     Fetch raw HTML from a given URL. If you just want to read the page and don't need the HTML code, use `get_contents` instead.
     :param url: The URL from which to fetch HTML.
     :returns: A dictionary containing the processed contents, excluding 'id', 'url' keys and null/empty values.
     """
+    from exa_py.api import Exa
+    exa_key = keys_tools['exa']
+    exa = Exa(api_key=exa_key)
     try:
-        results = regularize(clients_tools['exa'].get_contents([url]))
+        results = regularize(exa.get_contents([url]))
         contents = results['results'][0]
         contents = {k: v for k, v in contents.items() if k not in {'id', 'url'} and v not in {None, ''}}
         return contents
@@ -848,6 +828,7 @@ def get_html(url: str) -> Dict:
             response = requests.get(url)
             response.raise_for_status()
             text = response.text
+            return {'text': text}
         except requests.exceptions.HTTPError as http_err:
             ERRORS = {
                 404: f"Error 404: The resource at {url} was not found.",
@@ -859,9 +840,10 @@ def get_html(url: str) -> Dict:
             for (code, msg) in ERRORS.items():
                 if response.status_code == code:
                     text = msg
+            raise Exception(text) from http_err
         except requests.exceptions.RequestException as req_err:
             text = f"Request error occurred: {req_err}"
-        return text
+            raise Exception(text) from req_err
 
 @Tool
 def yield_control(self, message: str = '') -> str:
@@ -903,3 +885,48 @@ def ask_human(prompt: str) -> str:
     :param prompt: A description of the task.
     '''
     return input(prompt)
+
+@Tool
+def make_completion(suffix: str) -> str:
+    """
+    Completes an incomplete text input by appending a suffix.
+    :param suffix: A suffix to append to the input text.
+    :returns: The completed text.
+    """
+    pass
+
+@Tool
+def fill_in_middle(infix: str) -> str:
+    """
+    Fills in the middle of an incomplete text input given as a prompt and suffix by inserting the infix between the prompt and suffix.
+    :param infix: The infix to replace with a suffix.
+    :returns: The completed text.
+    """
+    pass
+
+@Tool
+def make_response(response: str) -> str:
+    """
+    Responds to the content of a text input.
+    :param response: The response given to the user.
+    :returns: Echoes the response.
+    """
+    pass
+
+@Tool
+def make_edit(old_segment: str, new_segment: str) -> str:
+    """
+    Edits an incomplete text input by replacing an old segment with a new segment.
+    :param old_segment: The old segment to replace.
+    :param new_segment: The new segment to replace the old segment with.
+    :returns: The edited text.
+    """
+    pass
+
+@Tool
+def think(issue: str) -> str:
+    """
+    Think your way through an issue. Returns nothing.
+    :param issue: The issue to think about.
+    """
+    pass

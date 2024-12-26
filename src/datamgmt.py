@@ -1,14 +1,21 @@
+"""Data management and conversion tools."""
 from __future__ import annotations
-from .utilities import *
-import requests
-from collections import deque
+
+from src.basetypes import *  # re, typing
+from src.supertypes import *  # builtins, functools, inspect, itertools, operator, logging
+from src.utilities import *  # datetime, json, os, sqlite3, time, types, random, requests
+
 from urllib.parse import urlparse, urljoin
 
 # Initialize logging
 logger = logging.getLogger('tree_scrape')
 
 def normalize_url(url: str) -> str:
-    """Normalize URL to a standard format."""
+    """
+    Normalize URL to a standard format. This is important to allow us to identify e.g. the eight variants of "(https?://)?google.com/?"
+    :param url: The URL to normalize.
+    :return: The normalized URL.
+    """
     parsed_url = urlparse(url)
     scheme = parsed_url.scheme if parsed_url.scheme in {'http', 'https'} else 'https'
     netloc = parsed_url.netloc
@@ -20,17 +27,27 @@ def normalize_url(url: str) -> str:
 
 def get_domain(url: str) -> str:
     """
-    Extract the domain from a given URL.
+    Extract the domain from a given URL. So "https://www.google.com/search?q=python" becomes "www.google.com".
     :param url: The URL to extract the domain from.
     :return: The extracted domain.
     """
     return urlparse(url).netloc
 
-def cache_get(cache_file: str, values: Union[str, List[str]], interpret_as_regex: bool = False, key_column: str = "url", value_column: str = "content") -> Union[str, Dict[str, str]]:
+def cache_get(cache_file: str,
+              keys: str | list[str],
+              interpret_as_regex: bool = False,
+              key_column: str = "url",
+              value_column: str = "content") -> str | dict[str, str]:
     """
-    Retrieve values from the cache.
+    - Retrieve values corresponding to one or more keys {keys} from a cache database {cache_file}.
+        - Currently supports sqlite3 and json files. The extension of {cache_file} must indicate the file type.
+        - With one key as input, one value will be given as a string.
+        - With multiple keys as input, a dictionary will be given mapping keys to outputs.
+    - {key_column} is the column of the database the inputs are matched to.
+    - {value_column} is the column of the database the outputs are taken from.
+    - If {interpret_as_regex}, the result tabulates all rows with a {key_column} value matching any regex in {keys}.
     :param cache_file: The path to the cache file.
-    :param values: The key(s) to retrieve from the cache.
+    :param keys: The key(s) to retrieve from the cache.
     :param interpret_as_regex: If True, interpret the keys as regex patterns.
     :return: The retrieved value(s) from the cache.
     """
@@ -46,11 +63,11 @@ def cache_get(cache_file: str, values: Union[str, List[str]], interpret_as_regex
     else:
         raise ValueError("Unsupported cache file format")
 
-    if isinstance(values, str):
-        values = [values]
+    if isinstance(keys, str):
+        keys = [keys]
 
     result = {}
-    for value in values:
+    for value in keys:
         if interpret_as_regex:
             pattern = re.compile(value)
             result.update({k: v for k, v in cache.items() if pattern.search(k)})
@@ -60,7 +77,11 @@ def cache_get(cache_file: str, values: Union[str, List[str]], interpret_as_regex
         return result
     return next(iter(result.values()), None)
 
-def cache_del(cache_file: str, values: Union[str, List[str]], interpret_as_regex: bool = False, key_column: str = "url", value_column: str = "content") -> None:
+def cache_del(cache_file: str,
+              values: str | list[str],
+              interpret_as_regex: bool = False,
+              key_column: str = "url",
+              value_column: str = "content") -> None:
     """
     Delete values from the cache.
     :param cache_file: The path to the cache file.
@@ -100,7 +121,7 @@ def cache_del(cache_file: str, values: Union[str, List[str]], interpret_as_regex
         conn.commit()
         conn.close()
 
-def setup_cache(cache_file: str) -> (Callable[[str], Optional[str]], Callable[[str, str], None]):
+def setup_cache(cache_file: str) -> tuple[Callable[[str], str | None], Callable[[str, str], None]]:
     """Setup cache using JSON or sqlite3 based on the file extension."""
     ext = os.path.splitext(cache_file)[-1].lower()
     if ext == '.json':
@@ -108,7 +129,7 @@ def setup_cache(cache_file: str) -> (Callable[[str], Optional[str]], Callable[[s
             with open(cache_file, 'w') as f:
                 json.dump({}, f)
 
-        def load_cache(url: str) -> Optional[str]:
+        def load_cache(url: str) -> str | None:
             with open(cache_file, 'r') as f:
                 cache = json.load(f)
             return cache.get(normalize_url(url))
@@ -126,7 +147,7 @@ def setup_cache(cache_file: str) -> (Callable[[str], Optional[str]], Callable[[s
         c.execute('CREATE TABLE IF NOT EXISTS cache (url TEXT PRIMARY KEY, content TEXT)')
         conn.commit()
 
-        def load_cache(url: str) -> Optional[str]:
+        def load_cache(url: str) -> str | None:
             c.execute('SELECT content FROM cache WHERE url = ?', (normalize_url(url),))
             result = c.fetchone()
             return result[0] if result else None
@@ -139,12 +160,13 @@ def setup_cache(cache_file: str) -> (Callable[[str], Optional[str]], Callable[[s
     return load_cache, save_cache
 
 def tree_scrape(
-    base_urls: str | List[str],
-    allowed_domains: List[str],
-    link_filter: Callable[[str], bool] = lambda link: True,
-    cache_file: Optional[str] = None,
-    scrape_limit: int = 0,
-    log_file: Optional[str] = None) -> Dict[str, str]:
+        base_urls:       list[str] | str,
+        allowed_domains: list[str],
+        link_filter:     Callable[[str], bool] = lambda link: True,
+        cache_file:      str | None = None,
+        scrape_limit:    int = 0,
+        log_file:        str | None = None
+    ) -> dict[str, str]:
     """
     Scrape web content starting from base_urls, following links that match the link_filter's criteria
     and are within the allowed_domains.
@@ -157,6 +179,7 @@ def tree_scrape(
     :return: Dictionary of URL to content mappings.
     """
     from bs4 import BeautifulSoup
+    from collections import deque
     if log_file:
         file_handler = logging.FileHandler(log_file)
         logger.addHandler(file_handler)
@@ -213,7 +236,11 @@ def tree_scrape(
                     logger.debug(f"Added link to stack: {href}")
     return scraped_content
 
-def struct_sqlite_db(sql_path: str, table_name: str, columns: Dict[str, str], primary_key: str) -> None:
+def struct_sqlite_db(
+        sql_path: str,
+        table_name: str,
+        columns: dict[str, str],
+        primary_key: str) -> None:
     """
     Create a SQLite database with columns of indicated (JSON) types.
     :param sql_path: Path to the SQLite database file
@@ -243,7 +270,11 @@ def struct_sqlite_db(sql_path: str, table_name: str, columns: Dict[str, str], pr
     conn.commit()
     conn.close()
 
-def jsonl_to_sqlite(jsonl_path: str, sql_path: str, table_name: str, column_fns: Dict[str, Callable]) -> None:
+def jsonl_to_sqlite(
+        jsonl_path: str,
+        sql_path: str,
+        table_name: str,
+        column_fns: dict[str, Callable]) -> None:
     """
     Import data from JSONL file to SQLite database using JSON schema.
     :param jsonl_path: Path to the JSONL file
@@ -261,12 +292,12 @@ def jsonl_to_sqlite(jsonl_path: str, sql_path: str, table_name: str, column_fns:
             if not line.strip():
                 continue
             print(line)
-            entry = json_loads(line)
+            entry = json.loads(line)
             values = []
             for col_fn in column_fns.values():
                 value = col_fn(entry)
                 if isinstance(value, (dict, list)):
-                    value = json_dumps(value)
+                    value = json.dumps(value)
                 if isinstance(value, bool):
                     value = int(value)
                 values.append(value)
@@ -278,7 +309,10 @@ def jsonl_to_sqlite(jsonl_path: str, sql_path: str, table_name: str, column_fns:
     conn.commit()
     conn.close()
 
-def query_sqlite_db(sql_path: str, query: str, params: Tuple = ()) -> List[Dict[str, Any]]:
+def query_sqlite_db(
+        sql_path: str,
+        query: str,
+        params: tuple = ()) -> list[dict[str, Any]]:
     """
     Execute a query on the SQLite database and return results.
     :param sql_path: Path to the SQLite database file

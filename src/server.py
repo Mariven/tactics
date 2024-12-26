@@ -3,20 +3,20 @@ Set up a custom API
 """
 from __future__ import annotations
 
-from .completion import *
+from src.basetypes import *  # re, typing
+from src.supertypes import *  # builtins, functools, inspect, itertools, operator, logging
+from src.utilities import *  # datetime, json, os, sqlite3, time, types, random, requests
+from src.tools import *  # ast
+from src.completion import *
 
-import json
-import re
 import httpx
-import hashlib
 import secrets
-from typing import Optional
-import datetime
+
+from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from fastapi.security import HTTPBearer as Bearer, HTTPAuthorizationCredentials as Credentials
 
 with open('data/secrets.json') as file:
     secrets_data = json.load(file).get('secrets', [])
@@ -27,7 +27,7 @@ with open('data/secrets.json') as file:
     local_token = custom_secret["value"]
     jina_key = jina_secret.get("value")
 
-security = HTTPBearer()
+security = Bearer()
 
 app = FastAPI()
 HOST, PORT = "0.0.0.0", 11434
@@ -75,16 +75,7 @@ def validate_session_token(token: str) -> bool:
         del session_store[token]
     return False
 
-def xor_strings(data: str, key: str) -> str:
-    """
-    Perform XOR encryption on two strings.
-    :param data: The string to encrypt.
-    :param key: The encryption key.
-    :returns: The XOR encrypted string.
-    """
-    return ''.join(chr(ord(c) ^ ord(k)) for c, k in zip(data, key * (len(data) // len(key) + 1)))
-
-def verify_token(request: Request, response: Response, credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+def verify_token(request: Request, response: Response, credentials: Credentials = Depends(security)) -> str:
     """
     Verify the provided authorization token.
     :param request: The incoming request object.
@@ -97,13 +88,14 @@ def verify_token(request: Request, response: Response, credentials: HTTPAuthoriz
         new_token = create_session_token(credentials.credentials)
         response.set_cookie(key="session_token", value=new_token, samesite="strict")
         return credentials.credentials
+
     if credentials and validate_session_token(credentials.credentials):
         return session_store[credentials.credentials][0]
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token")
 
 @app.get("/v1/protected-route")
-async def protected_route(credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+async def protected_route(credentials: Credentials = Depends(verify_token)) -> dict:
     """protected_route"""
     return {"message": "Successfully authenticated"}
 
@@ -170,7 +162,7 @@ global_params = {
     "stream": True,
     } | dict.fromkeys(["model", "max_tokens", "seed", "stop", "n", "user", "logit_bias", "logprobs", "top_logprobs", "presence_penalty", "frequency_penalty", "suffix", "grammar", "json_schema", "response_format", "tools", "tool_choice", "parallel_tool_calls", "functions", "function_call", "system_message", "service_tier", "stream_options", "echo"], None)
 
-def fill(obj: BaseModel) -> Optional[BaseModel]:
+def fill(obj: BaseModel) -> BaseModel | None:
     """
     Fill in missing values in the object with default values from global_params.
     :param obj: The object to fill.
@@ -191,16 +183,16 @@ class TokenizeRequest(BaseModel):
     :param return_tokens: Whether to return the tokens.
     :param tokenizer: The tokenizer to use.
     """
-    content: Optional[str] = None
-    return_tokens: Optional[bool] = False
-    tokenizer: Optional[str] = "o200k_base"
+    content: str | None = None
+    return_tokens: bool | None = False
+    tokenizer: str | None = "o200k_base"
 
 class ScrapeRequest(BaseModel):
     """
     A request for web scraping.
     :param url: The URL to scrape.
     """
-    url: Optional[str] = None
+    url: str | None = None
 
 class ResolveRequest(BaseModel):
     """
@@ -209,9 +201,9 @@ class ResolveRequest(BaseModel):
     :param model: The model to resolve.
     :param mode: The mode to resolve (e.g. "text", "chat").
     """
-    id: Optional[str] = None  # ambiguous whether to call id or model, so allow both
-    model: Optional[str] = None
-    mode: Optional[str] = ''
+    id: str | None = None  # ambiguous whether to call id or model, so allow both
+    model: str | None = None
+    mode: str | None = ''
 
 class Parameters(BaseModel):
     """
@@ -224,51 +216,51 @@ class Parameters(BaseModel):
     :param stream: Whether to stream the response (default: True).
         ...
     """
-    model: Optional[str] = None
-    mode: Optional[str] = None
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    max_tokens: Optional[int] = None
-    stream: Optional[bool] = None
-    suffix: Optional[str] = None
-    grammar: Optional[str] = None
-    response_format: Optional[dict] = None
-    force_model: Optional[str] = None
-    force_provider: Optional[str] = None
-    print_output: Optional[bool] = None
-    yield_output: Optional[bool] = None
-    return_output: Optional[bool] = None
-    debug: Optional[bool] = None
-    return_raw: Optional[bool] = None
-    pretty_tool_calls: Optional[bool] = None
-    return_object: Optional[bool] = None
-    text_model: Optional[str] = None
-    chat_model: Optional[str] = None
-    text_max_tokens: Optional[int] = None
-    chat_max_tokens: Optional[int] = None
-    seed: Optional[int] = None
-    stop: Optional[List[str]] = None
-    n: Optional[int] = None
-    user: Optional[str] = None
-    logit_bias: Optional[dict] = None
-    logprobs: Optional[int] = None
-    top_logprobs: Optional[int] = None
-    presence_penalty: Optional[float] = None
-    frequency_penalty: Optional[float] = None
-    stream_options: Optional[dict] = None
-    system_message: Optional[str] = None
-    echo: Optional[bool] = None
-    service_tier: Optional[str] = None
+    model: str | None = None
+    mode: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+    stream: bool | None = None
+    suffix: str | None = None
+    grammar: str | None = None
+    response_format: dict | None = None
+    force_model: str | None = None
+    force_provider: str | None = None
+    print_output: bool | None = None
+    yield_output: bool | None = None
+    return_output: bool | None = None
+    debug: bool | None = None
+    return_raw: bool | None = None
+    pretty_tool_calls: bool | None = None
+    return_object: bool | None = None
+    text_model: str | None = None
+    chat_model: str | None = None
+    text_max_tokens: int | None = None
+    chat_max_tokens: int | None = None
+    seed: int | None = None
+    stop: list[str] | None = None
+    n: int | None = None
+    user: str | None = None
+    logit_bias: dict | None = None
+    logprobs: int | None = None
+    top_logprobs: int | None = None
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
+    stream_options: dict | None = None
+    system_message: str | None = None
+    echo: bool | None = None
+    service_tier: str | None = None
 
-    prompt: Optional[str] = None
-    messages: Optional[List[dict] | str] = None
-    tools: Optional[List[dict]] = None
-    tool_choice: Optional[dict] = None
-    parallel_tool_calls: Optional[bool] = None
+    prompt: str | None = None
+    messages: list[dict] | str | None = None
+    tools: list[dict] | None = None
+    tool_choice: dict | None = None
+    parallel_tool_calls: bool | None = None
 
 @app.post("/v1/text")
 @app.post("/v1/completions")
-async def api_text_completion(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Any:
+async def api_text_completion(request: Parameters, credentials: Credentials = Depends(verify_token)) -> Any:
     """
     Takes a text completion request and returns the completion.
     :param request: The text completion request.
@@ -304,12 +296,12 @@ async def api_text_completion(request: Parameters, credentials: HTTPAuthorizatio
     # 	raise HTTPException(status_code=500, detail=str(e))
 
 # @app.post("/v1/completions")
-# async def api_text_completion2(request: TextCompletionRequest, credentials: HTTPAuthorizationCredentials = Depends(verify_token)):
+# async def api_text_completion2(request: TextCompletionRequest, credentials: Credentials = Depends(verify_token)):
 # 	return api_text_completion(request, credentials)
 
 @app.post("/v1/chat")
 @app.post("/v1/chat/completions")
-async def api_chat_completion(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Any:
+async def api_chat_completion(request: Parameters, credentials: Credentials = Depends(verify_token)) -> Any:
     """
     Endpoint for chat completion requests.
     :param request: The chat completion request.
@@ -345,16 +337,16 @@ async def api_chat_completion(request: Parameters, credentials: HTTPAuthorizatio
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 @app.get("/v1/params")
-async def get_parameters(credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+async def get_parameters(credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Retrieves the global parameters.
-    :param credentials (HTTPAuthorizationCredentials): The authorization credentials.
+    :param credentials (Credentials): The authorization credentials.
     :returns: A dictionary containing the global parameters.
     """
     return global_params
 
 @app.post("/v1/params")
-async def set_parameters(request: Parameters, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+async def set_parameters(request: Parameters, credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Sets the global parameters.
     :param request: The parameters to be updated.
@@ -369,7 +361,7 @@ async def set_parameters(request: Parameters, credentials: HTTPAuthorizationCred
 @app.get("/v1/models")
 async def get_models_query(
     id: str = Query(None), mode: str = Query(None),
-    credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+    credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Retrieves a list of models. If `id` or `mode` is provided, it will filter the list accordingly.
     :param id: The ID of the model (optional).
@@ -386,7 +378,7 @@ async def get_models_query(
     return {'object': 'list', 'data': L}
 
 @app.post("/v1/models")
-async def do_resolve(request: ResolveRequest, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> str:
+async def do_resolve(request: ResolveRequest, credentials: Credentials = Depends(verify_token)) -> str:
     """
     Resolves a model or tool based on the provided request.
     :param request (ResolveRequest): The request containing the ID, model, and mode.
@@ -402,7 +394,7 @@ async def do_resolve(request: ResolveRequest, credentials: HTTPAuthorizationCred
 async def get_tokens(
     request: TokenizeRequest = None,
     content: str = Query(None), return_tokens: bool = Query(None), tokenizer: str = Query("o200k_base"),
-    credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+    credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Gives the tokens for a given text. If `request` is provided, it will use the `content`, `return_tokens`, and `tokenizer` from the request. Otherwise, it will use the query parameters.
     :param request: The tokenize request (optional).
@@ -450,7 +442,7 @@ async def get_tokens(
 @app.get("/v1/scrape")
 async def scrape_url(
     request: ScrapeRequest = None, url: str = Query(None),
-    credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+    credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Service for scraping text from a URL.
     :param request: The scrape request (optional).
@@ -481,7 +473,7 @@ async def scrape_url(
     return output
 
 @app.get("/v1/scrape/{url:path}")
-async def scrape_url_direct(url: str, credentials: HTTPAuthorizationCredentials = Depends(verify_token)) -> Dict:
+async def scrape_url_direct(url: str, credentials: Credentials = Depends(verify_token)) -> dict:
     """
     Alias for `scrape_url` with the URL provided as a path parameter.
     :param url: The URL to scrape.
@@ -558,7 +550,7 @@ function processArray(arr, condition) {
 with open('data/structured_outputs/code_diff.json') as file:
     code_diff_schema = json.load(file)
 
-def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = None) -> str:
+def js_wand(incomplete_code: str, endpoint: str, complete_raw: bool | None = None) -> str:
     """
     Takes incomplete JavaScript code and completes it using the provided endpoint.
     :param incomplete_code: The incomplete JavaScript code to be completed.
@@ -568,9 +560,9 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
     """
     debug = True
     if debug:
-        debug_file = open('../logs/debug.txt', 'a')
+        debug_file = open('../logs/debug.txt', 'a')  # noqa: SIM115
     try:
-        def enumerate_lines(code: str) -> List[str]:
+        def enumerate_lines(code: str) -> list[str]:
             """
             Enumerate each line of the provided code snippet.
             """
@@ -601,7 +593,7 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
             debug_file.write(str(completed_code_lines) + '\n')
         new_lines = []
 
-        def get_indents(line: str) -> Tuple[str, int]:
+        def get_indents(line: str) -> tuple[str, int]:
             """
             Determine the indentation type and depth of a given line.
             """
@@ -634,11 +626,11 @@ def js_wand(incomplete_code: str, endpoint: str, complete_raw: Optional[bool] = 
     return result
 
 def text_wand(incomplete_text: str, raw_edits = None) -> str:
-    def enumerate_lines(code: str) -> List[str]:
+    def enumerate_lines(code: str) -> list[str]:
         cleaned_code_lines = re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', code).split('\n')
         return [str(idx + 1) + ' ' + text for idx, text in enumerate(cleaned_code_lines)]
 
-    def obtain_edits(lines: List[str]) -> List[Object]:
+    def obtain_edits(lines: list[str]) -> list[Object]:
         response = completion(
             pretty_tool_calls=False,
             mode="chat",
@@ -659,14 +651,14 @@ def text_wand(incomplete_text: str, raw_edits = None) -> str:
             raise Exception(msg)
         return raw_edits
 
-    def apply_edits(old_text: str, raw_edits: List[str]) -> str:
+    def apply_edits(old_text: str, raw_edits: list[str]) -> str:
         old_lines = {k: [v] for k, v in enumerate(re.sub(r'^\n*([\s\S]+?)\n*$', r'\1', old_text).split('\n'))}
         line_edits = {int(edit['id']) - 1: edit['lines'] for edit in json.loads(raw_edits[0].function.arguments)['edits']}
         return [y for y_ in (old_lines | line_edits).values() for y in y_]
 
-    enumerated_lines = enumerate_lines(incomplete_code)
+    enumerated_lines = enumerate_lines(incomplete_text)
     raw_edits = raw_edits or obtain_edits(enumerated_lines)
-    new_lines = apply_edits(incomplete_code, raw_edits)
+    new_lines = apply_edits(incomplete_text, raw_edits)
     return '\n'.join(new_lines)
 
 if __name__ == "__main__":

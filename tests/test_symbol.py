@@ -103,7 +103,6 @@ def test_error_handling() -> None:
     with pytest.raises(ValueError):
         _x(y=1)  # Missing value for x
 
-
 test_basic_arithmetic()
 test_comparison()
 test_unary_operations()

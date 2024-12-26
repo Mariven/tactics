@@ -2,74 +2,62 @@ r"""
 Miscellaneous utilities for simplifying and analyzing this package's other modules.
 
 Contains:
-    defer_kwargs
-        (factory: Callable[..., Decorator]) -> Callable[..., Decorator]
-    log_and_callback
-        (func: Callable, view: Callable) -> Callable
-    show_call
-        (func: Callable, view: Callable) -> Callable
-    freeze_args
-        (*f_args, **f_kwargs) -> Decorator
-    distribute
-        (exclude: List[str], output: str, tabulate_all: bool, after: Callable, threads: int, timeouts: Optional[Dict[str, Optional[float]]]) -> Callable
-    merge_kwargs_into
-        (key: str, except_for: List[str]) -> Decorator
-    jsonl_cache
-        (path: str, ttl: int, allow_initialize: bool = False, allow_clean: bool = True) -> Decorator
-    preformatting_factory
-        (formatters: Dict[str, Callable]) -> Decorator
-    router
-        (func: F) -> F
-    gen_stream
-        (generator) -> str
-    print_stream
-        (generator) -> None
-    get_parameter_values
-        (func: F, args: List[Any], kwargs: Object) -> Object
-    profile
-        (obj: Any, max_depth: int, prefix: str, visited: Optional[List], depth: int) -> List
-    fuzzy_in
-        (s1: str, s2: str) -> bool
-    regularize
-        (obj: Any) -> Any
-    query
-        (objects: List[Dict], key: str, value: Any, on_failure: Dict) -> Dict
-    query_all
-        (objects: List[Dict], key: str, value: Any) -> List[Dict]
-    make_lines
-        (text: str, row_len: int, separators: List[str], newlines: List[str]) -> List[Tuple[int, str]]
-    gen_pseudoword
-        (length: int, state: int) -> str
+    defer_kwargs               (factory: Callable[..., Decorator]) -> Callable[..., Decorator]
+    log_and_callback           (func: Callable, view: Callable) -> Callable
+    show_call                  (func: Callable, view: Callable) -> Callable
+    freeze_args                (*f_args, **f_kwargs) -> Decorator
+    distribute                 (exclude: list[str], output: str, tabulate_all: bool, after: Callable, threads: int, timeouts: dict[str, float | None] | None) -> Callable
+    merge_kwargs_into          (key: str, except_for: list[str]) -> Decorator
+    jsonl_cache                (path: str, ttl: int, allow_initialize: bool = False, allow_clean: bool = True) -> Decorator
+    preformatting_factory      (formatters: dict[str, Callable]) -> Decorator
+    router                     (func: F) -> F
+    gen_stream                 (generator) -> str
+    print_stream               (generator) -> None
+    get_parameter_values       (func: F, args: list[Any], kwargs: Object) -> Object
+    profile                    (obj: Any, max_depth: int, prefix: str, visited: list[Any] | None, depth: int) -> list[Any]
+    fuzzy_in                   (s1: str, s2: str) -> bool
+    regularize                 (obj: Any) -> Any
+    query                      (objects: list[dict], key: str, value: Any, on_failure: dict) -> dict
+    query_all                  (objects: list[dict], key: str, value: Any) -> list[dict]
+    make_lines                 (text: str, row_len: int, separators: list[str], newlines: list[str]) -> list[tuple[int, str]]
+    gen_pseudoword             (length: int, state: int) -> str
 """
+from __future__ import annotations
 
-from .supertypes import *
+from src.basetypes import *
+from src.supertypes import *
 
+import datetime
 import json
-import operator
 import os
+import random
+import requests
 import sqlite3
 import time
 import types
-import functools
-import concurrent.futures
 
 # meta-decorator
 def defer_kwargs(
     decorator_factory: Callable[..., Decorator]
 ) -> Callable[..., Decorator]:
     """
-    A meta-decorator that allows kwargs of multiple chained decorator factories to be specified
-    in a call of a decorated function by adding the prefix "_{factory_name}_" or just "_"
-    if the kwarg is unique to that decorator.
-    :param decorator_factory: The decorator factory to be enhanced.
-    :returns: An enhanced version of the decorator factory that supports deferred kwargs.
+    A meta-decorator that allows deferring keyword arguments for multiple chained decorator factories.
+
+    Any kwargs that are prefixed with underscores and match the parameter names of the underlying factories
+    will automatically be routed to the appropriate decorator. This is helpful for combining multiple
+    decorators that need to receive distinct keyword arguments in a single function call.
+    For example, if you have a decorator factory deco(arg=1) and function f(x), then
+        defer_kwargs(deco)(f)(x, _deco_arg=2) will call deco(arg=2)(f)(x).
+
+    :param decorator_factory: A function that returns a decorator (a "factory for decorators").
+    :return: A callable that, when given arguments, returns a decorator which can handle deferred kwargs.
     """
     @functools.wraps(decorator_factory)
     def deferring_factory(
         *factory_args: Any,
         **factory_kwargs: Any
     ) -> Decorator:
-        def deferred_decorator(func: F) -> F:
+        def deferred_decorator(func: Func) -> Func:
             in_wrapped: bool = hasattr(func, '_add_opts_wrapped')
             all_factories = (func._all_factories if in_wrapped else []) + [decorator_factory]
             original_func = func._original_func if in_wrapped else func
@@ -77,7 +65,7 @@ def defer_kwargs(
             @functools.wraps(original_func)
             def resolving_func(*func_args: Any, **func_kwargs: Any) -> Any:
                 sig = inspect.signature(original_func)
-                base_params: Set[str] = set(sig.parameters.keys())
+                base_params: set[str] = set(sig.parameters.keys())
 
                 base_kwargs: Object = {k: v for k, v in func_kwargs.items() if k in base_params}
                 potential_dec_kwargs: Object = {k: v for k, v in func_kwargs.items() if k not in base_params}
@@ -85,7 +73,7 @@ def defer_kwargs(
                 factory_specific_kwargs = {dec: {} for dec in all_factories}
                 for factory in all_factories:
                     factory_sig = inspect.signature(factory)
-                    factory_params: Set[str] = set(factory_sig.parameters.keys())
+                    factory_params: set[str] = set(factory_sig.parameters.keys())
                     factory_params -= {'args', 'kwargs'}
 
                     prefix = f"_{factory.__name__}_"
@@ -136,10 +124,15 @@ def defer_kwargs(
 # decorator factory
 def log_and_callback(func: Callable, view: Callable = logging.info) -> Callable:
     """
-    Decorator to add logging and callback functionality to methods.
-    :param func: The function to be decorated.
-    :param view: The function to use for logging.
-    :returns: The decorated function.
+    A decorator to provide logging and optional callback behavior for async methods on a class instance.
+
+    Each time the decorated function is called on 'self', its name and the class name will be logged via
+    the provided 'view' callable, then the original function is awaited and its result is returned. If the
+    instance has a 'callback' method, that callback will be invoked with signature callback(self, method_name, result).
+
+    :param func: The async function to decorate.
+    :param view: The logging function, defaults to logging.info.
+    :return: An async function wrapper that logs and optionally invokes a callback.
     """
     @functools.wraps(func)
     async def wrapper(self, *args, **kwargs) -> Any:
@@ -153,9 +146,14 @@ def log_and_callback(func: Callable, view: Callable = logging.info) -> Callable:
 # decorator factory
 def show_call(func: Callable, view: Callable = print) -> Callable:
     """
-    Decorator to print the arguments and return value of a function when it is called.
-    :param func: The function to be decorated.
-    :returns: The decorated function.
+    A decorator to print function calls and return values for debugging.
+
+    The decorated function, when called, prints its arguments and the resulting return value using the
+    provided 'view' function (print by default). This is synchronous usage: it does not handle async calls.
+
+    :param func: The function to decorate.
+    :param view: The function used for printing (default: builtin print).
+    :return: A function wrapper that prints arguments and return results.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Callable:
@@ -171,12 +169,16 @@ def show_call(func: Callable, view: Callable = print) -> Callable:
 # decorator factory
 def freeze_args(*f_args, **f_kwargs) -> Decorator:
     """
-    Fixes some named arguments of a function, or prepends some unnamed arguments.
-    :param f_args: The unnamed arguments to be prepended.
-    :param f_kwargs: The named arguments to be fixed.
-    :returns: A decorator that fixes the arguments of a function.
+    Fix some named arguments of a function, or prepend some unnamed arguments to the function's call signature.
+    This effectively creates a new function with those arguments bound or prepended, leaving the rest
+    of the arguments unmodified.
+
+    :param f_args: Positional arguments to be prepended to the function call.
+    :param f_kwargs: Keyword arguments to be bound to the decorated function.
+    :return: A decorator that, when applied to a function, returns a new function with the specified
+             arguments fixed and/or prepended.
     """
-    def decorator(fn: F) -> F:
+    def decorator(fn: Func) -> Func:
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Any:
             return fn(*(f_args + args), **(f_kwargs | kwargs))
@@ -186,25 +188,38 @@ def freeze_args(*f_args, **f_kwargs) -> Decorator:
 # decorator factory
 @defer_kwargs
 def distribute(
-        exclude: Union[str, List[str]] = [],
-        outputs: Dict[str, str] = {"value": "value", "order": "order"},
+        exclude: str | list[str] = [],
+        outputs: dict[str, str] = {"value": "value", "order": "order"},
         tabulate_all: bool = False,
-        after: F = lambda **x: x,
+        after: Func = lambda **x: x,
         threads: int = 1,
-        timeouts: Optional[Dict[str, Optional[float]]] = None
+        timeouts: dict[str, float | None] | None = None
     ) -> Decorator:
     """
-    Factory for producing decorators that modify functions to evaluate distributively across lists. E.g., if you have a function f(foo: int, bar: str), then prepending @distribute() allows you to call f(foo=[1,2,3],bar="a") and receive [{foo: 1, order: 0, value: f(foo=1, bar="a")}, {foo: 2, order: 1...}, ...].
+    A decorator factory to enable distributive (parallel or serial) execution over list-typed parameters.
+
+    There is a special format for outputs: it is a list with one dict for each call, all with keys "value" and "order",
+        along with values for all varying parameters used in the call. Thus, you often want to use after to transform
+        the output of the function into the format you want, e.g. `after=lambda **x: x["value"]`.
+
+    If a decorated function is called with any parameter(s) that are lists (except for those in 'exclude'), it will
+    run the function for each combination of items in those lists, returning a list of dictionaries of results.
+    Each result dictionary will have the result under outputs["value"] and a zero-based sequence index under
+    outputs["order"]. Optionally, tabulate_all controls whether the resulting dictionaries include non-list
+    parameters as well.
+
     TODO: set safety measures in place, since it might be easy to accidentally trigger 5400 different completions at once
     TODO: add a progress bar and a way to cancel the operation without losing already-computed results
     TODO: add a (contextualizable, combinable) rate limiting system
-    :param exclude: Prevents certain named parameters from being distributed over if lists, e.g. if they"re lists originally
-    :param outputs: The keys that the utility outputs are assigned to in the resulting dicts.
-    :param tabulate_all: Controls whether each dict contains all named arguments, or just the actively changing ones.
-    :param after: A function called upon all named parameters along with value to transform or filter outputs.
-    :param threads: Controls the number of threads to run simultaneously, default is 1 (i.e. serial), will activate parallelism when greater than 1.
-    :param timeouts: Dictionary with optional 'local' (per-task) and 'global' (entire operation) timeouts in seconds
-    :returns: A decorator that modifies a function to evaluate distributively across lists.
+    :param exclude: Parameter name(s) to exclude from distribution, so that those are not iterated over if they are lists.
+    :param outputs: Dict specifying where to place the resulting function's return value and the iteration order in the
+                    final dictionary, in keys "value" and "order".
+    :param tabulate_all: If True, each result contains a copy of all named arguments. If False, only the distributed
+                         arguments differ in each result dict.
+    :param after: A callable that post-processes each result dictionary (e.g., for filtering or transformation).
+    :param threads: Number of threads for parallel execution; 1 means serial.
+    :param timeouts: Optional dictionary specifying 'local' and/or 'global' timeouts in seconds.
+    :return: A decorator that modifies a function to evaluate distributively over list-typed parameters.
     """
     if isinstance(exclude, str):
         exclude = [exclude]
@@ -213,7 +228,7 @@ def distribute(
     local_timeout = timeouts.get('local')
     global_timeout = timeouts.get('global')
 
-    def distribute_decorator(func: F) -> F:
+    def distribute_decorator(func: Func) -> Func:
         """
         Modifies a function to evaluate distributively across lists.
         :param func: The function to be modified.
@@ -245,25 +260,25 @@ def distribute(
                             for future in as_completed(future_to_combo.keys(), timeout=global_timeout):
                                 combo, idx = future_to_combo[future]
                                 try:
-                                    # Use local timeout for individual tasks
-                                    result = future.result(timeout=local_timeout)
                                     combo_dict = dict(zip(list_args.keys(), combo))
                                     if not tabulate_all:
                                         combo_dict = {k: v for k, v in combo_dict.items()
                                                     if (isinstance(all_args.get(k), list) and k not in exclude)}
+                                    # Use local timeout for individual tasks
+                                    result = future.result(timeout=local_timeout)
                                     combo_dict[outputs["value"]] = result
                                     combo_dict[outputs["order"]] = idx
                                     results.append(after(**combo_dict))
-                                except concurrent.futures.TimeoutError:
-                                    print(f"Task {idx} timed out after {local_timeout} seconds")
+                                except TimeoutError:
+                                    print(f"Task {idx} ({str(combo_dict)[:100]}) timed out after {local_timeout} seconds")
                                     future.cancel()
                                 except Exception as e:
-                                    print(f"Task {idx} generated an exception: {e}")
+                                    print(f"Task {idx} ({str(combo_dict)[:100]}) generated an exception: {e}")
 
-                        except concurrent.futures.TimeoutError:
+                        except TimeoutError:
                             print(f"Global timeout after {global_timeout} seconds")
                             # Cancel all remaining futures
-                            for fut in future_to_combo.keys():
+                            for fut in future_to_combo:
                                 fut.cancel()
 
                     return results
@@ -285,18 +300,22 @@ def distribute(
     return distribute_decorator
 
 # decorator factory
-def merge_kwargs_into(key: str, except_for: List[str] = []) -> Decorator:
+def merge_kwargs_into(key: str, except_for: list[str] = []) -> Decorator:
     """
-    Produces a decorator which allows a function with dictionary argument named {key} to be called with kwargs, which are merged into the dictionary.
-    E.g., merge_kwargs_into("options") allows you to call f(options={"a": 1}, b=2) and receive f(options={"a": 1, "b": 2}).
-    :param key: The key of the argument in which to store the merged kwargs.
-    :param except_for: The keys of the kwargs to exclude from merging. Allowed to contain regexes, for dynamic matching.
-    :returns: A decorator that merges the keyword arguments of a function.
+    Produces a decorator merging extra kwargs into a dictionary-type argument of a function.
+
+    For a function with a dictionary argument 'key', calling that function with additional kwargs merges
+    them into that dictionary. The 'except_for' list can specify keys to exclude from merging. This is
+    handy when a function expects a dictionary argument but you want to supply some portion of it as kwargs.
+
+    :param key: Name of the dictionary argument into which extra kwargs are merged.
+    :param except_for: Names (or patterns) to exclude from merging into that dictionary.
+    :return: A decorator that merges the relevant subset of kwargs into the function's dictionary argument.
     """
     def excepted(k: str) -> bool:
         return any(re.match(excuse, k) for excuse in except_for)
 
-    def decorator(f: F) -> F:
+    def decorator(f: Func) -> Func:
         @functools.wraps(f)
         def wrapper(*args, **kwargs) -> Any:
             to_merge = {k: v for k, v in kwargs.items() if not (excepted(k) or k == key)}
@@ -310,12 +329,17 @@ def merge_kwargs_into(key: str, except_for: List[str] = []) -> Decorator:
 # decorator factory
 def jsonl_cache(path: str, ttl: int, allow_initialize: bool = False, allow_clean: bool = True) -> Decorator:
     """
-    Factory for producing decorators that cache the results of functions in a specified JSONL file.
-    :param path: The path to the cache file.
-    :param ttl: The time-to-live of the cache entries in seconds.
-    :param allow_initialize: Whether to allow the cache file to be created if it does not exist.
-    :param allow_clean: Whether to delete expired cache entries on the spot.
-    :returns: A decorator that caches the results of a function.
+    Decorator factory for caching function results in a JSON Lines file.
+
+    Each unique function call (based on hash of function name and arguments) is stored along with an expiration
+    time. If a cached result is found (and not expired), it is returned immediately. Otherwise, the function
+    is called and its result is appended to the JSONL file. Expired entries can be optionally cleaned on read.
+
+    :param path: The path to the JSONL file used for caching.
+    :param ttl: Time-to-live in seconds for each cached entry.
+    :param allow_initialize: If True, creates the cache file if it doesn't exist. Otherwise, raises an error if missing.
+    :param allow_clean: If True, removes expired entries from the cache file on each read.
+    :return: A decorator that adds JSONL-based caching to a function, keyed on function name and arguments.
     """
     def serialize(obj: Any, short_functions: bool = False, dump: bool = False) -> Any:
         """
@@ -344,7 +368,7 @@ def jsonl_cache(path: str, ttl: int, allow_initialize: bool = False, allow_clean
         short = hash(x) % 2**32
         return hex(short)[2:]
 
-    def cache_decorator(f: F) -> F:
+    def cache_decorator(f: Func) -> Func:
         """
         Allows a function to cache its outputs in a JSONL file.
         :param f: The function whose outputs are to be cached.
@@ -429,15 +453,21 @@ def jsonl_cache(path: str, ttl: int, allow_initialize: bool = False, allow_clean
     return cache_decorator
 
 # decorator factory
-def preformatting_factory(formatters: Dict[str, F]) -> Decorator:
+def preformatting_factory(formatters: dict[str, Callable]) -> Decorator:
     """
-    A decorator factory that allows you to specify formatters for any of the input parameters of a function before it is called.
-    :param formatters: A dictionary mapping parameter names to formatter functions that should be applied to the input values.
-    :returns: A decorator that applies the specified formatters to the input values before calling the function.
+    Creates a decorator that applies specific formatter functions to named parameters before passing them on.
+
+    Often used to standardize or sanitize inputs (e.g., normalizing URLs) so that the decorated function doesn't
+    receive multiple inconsistent representations of the same data. Each parameter in 'formatters' is replaced
+    by formatters[param_name](value) if present.
+
+    :param formatters: A dict mapping argument names to callables. Each corresponding arg is replaced with the
+                       callable's return value.
+    :return: A decorator that applies pre-processing to the specified function arguments.
     """
     # this decorator factory is used to ensure that the url is in the correct format before being passed to the function
     # so that the cache doesn't have to deal with multiple versions of the same url
-    def preformatting_decorator(func: F) -> F:
+    def preformatting_decorator(func: Func) -> Func:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
             input_values = get_parameter_values(func, args, kwargs)
@@ -451,132 +481,141 @@ def preformatting_factory(formatters: Dict[str, F]) -> Decorator:
 
 # decorator
 
-def router(func: F) -> F:
-	"""
-	Decorator that routes arguments to parameters based on type hints.
-	:param func: The function to decorate
-	:returns: The decorated function capable of reordering inputs to match parameters
-	"""
-	comparison_matrix = {
-		'Any': { 'list': 60, 'tuple': 65, 'dict': 55, 'set': 50 },
-		'list': { 'tuple': 5 , 'list': -1 },
-		'tuple': { 'list': 5 , 'tuple': -1 },
-		'dict': { 'set': 5 , 'dict': -1 },
-		'set': { 'dict': 5 , 'tuple': 3 , 'list': 3 , 'set': -1 },
-		'float': { 'int': 3, 'float': -1 },
-		'int': { 'float': 3, 'int': -1 }
+def router(func: Func) -> Func:
+    """
+    A decorator that attempts to route positional arguments to the parameters based on type hints.
+
+    This decorator matches *args to appropriate parameters by comparing their dynamic types against the
+    annotated parameter types of the original function. Any leftover or ambiguous arguments remain as-is
+    if they do not obviously match a typed parameter.
+
+    :param func: The function to decorate.
+    :return: The decorated function that tries to route positional arguments by analyzing function signature.
+    """
+    comparison_matrix = {
+        'Any': { 'list': 60, 'tuple': 65, 'dict': 55, 'set': 50 },
+        'list': { 'tuple': 5 , 'list': -1 },
+        'tuple': { 'list': 5 , 'tuple': -1 },
+        'dict': { 'set': 5 , 'dict': -1 },
+        'set': { 'dict': 5 , 'tuple': 3 , 'list': 3 , 'set': -1 },
+        'float': { 'int': 3, 'float': -1 },
+        'int': { 'float': 3, 'int': -1 }
     }
 
-	def match_args_to_params(args: Tuple[Any, ...], param_names: List[str], param_types: List[Any]) -> Object:
-		"""Match arguments to parameters based on types."""
-		matched_args = {}
-		args = list(args)
-		for name, param_type in zip(param_names, param_types):
-			this_best = sorted(([e[0], compare_types(param_type, standardize_type_literal(e[1]))] for e in enumerate(args)), key=lambda x: x[1])
-			# matched_args[name] = this_best
-			i, diff = this_best[0]
-			matched_args[name] = args.pop(i)
-		return matched_args
+    def match_args_to_params(args: tuple, param_names: list[str], param_types: list[Any]) -> Object:
+        """Match arguments to parameters based on types."""
+        matched_args = {}
+        args = list(args)
+        for name, param_type in zip(param_names, param_types):
+            this_best = sorted(([e[0], compare_types(param_type, standardize_type_literal(e[1]))] for e in enumerate(args)), key=lambda x: x[1])
+            # matched_args[name] = this_best
+            i, _ = this_best[0]
+            matched_args[name] = args.pop(i)
+        return matched_args
 
-	def compare_types(type1: Any, type2: Any, epsilon: float = 0.1) -> float:
-		"""Compare two types based on a partial order defined by weights and a comparison matrix."""
-		if isinstance(type1, type):
-			type1 = standardize_type(type1)
-		if isinstance(type2, type):
-			type2 = standardize_type(type2)
-		if isinstance(type1, str) and isinstance(type2, str):
-			if type1 == type2:
-				return -1
-			if type1 in comparison_matrix and type2 in comparison_matrix[type1]:
-				return comparison_matrix[type1][type2]
-			if type2 in comparison_matrix and type1 in comparison_matrix[type2]:
-				return -comparison_matrix[type2][type1]
+    def compare_types(type1: Any, type2: Any, epsilon: float = 0.1) -> float:
+        """Compare two types based on a partial order defined by weights and a comparison matrix."""
+        if isinstance(type1, type):
+            type1 = standardize_type(type1)
+        if isinstance(type2, type):
+            type2 = standardize_type(type2)
+        if isinstance(type1, str) and isinstance(type2, str):
+            if type1 == type2:
+                return -1
+            if type1 in comparison_matrix and type2 in comparison_matrix[type1]:
+                return comparison_matrix[type1][type2]
+            if type2 in comparison_matrix and type1 in comparison_matrix[type2]:
+                return -comparison_matrix[type2][type1]
 
-		if isinstance(type1, tuple) and isinstance(type2, tuple):
-			# Compare container types
-			container1, *args1 = type1
-			container2, *args2 = type2
-			if container1 == container2 and container1[0] in {'list', 'tuple', 'dict', 'set'}:
-				return compare_types(args1[0], args2[0], epsilon * 0.01) + (compare_types(args1[1], args2[1], epsilon * 0.01) if container1 == 'dict' else 0)
-			# Different container types, use comparison matrix
-			if container1 in comparison_matrix and container2 in comparison_matrix[container1]:
-				return comparison_matrix[container1][container2]
-			if container2 in comparison_matrix and container1 in comparison_matrix[container2]:
-				return -comparison_matrix[container2][container1]
+        if isinstance(type1, tuple) and isinstance(type2, tuple):
+            # Compare container types
+            container1, *args1 = type1
+            container2, *args2 = type2
+            if container1 == container2 and container1[0] in {'list', 'tuple', 'dict', 'set'}:
+                return compare_types(args1[0], args2[0], epsilon * 0.01) + (compare_types(args1[1], args2[1], epsilon * 0.01) if container1 == 'dict' else 0)
+            # Different container types, use comparison matrix
+            if container1 in comparison_matrix and container2 in comparison_matrix[container1]:
+                return comparison_matrix[container1][container2]
+            if container2 in comparison_matrix and container1 in comparison_matrix[container2]:
+                return -comparison_matrix[container2][container1]
 
-		if isinstance(type1, list) and isinstance(type2, list):
-			return compare_types(type1[0], type2[0], epsilon * 0.01)
+        if isinstance(type1, list) and isinstance(type2, list):
+            return compare_types(type1[0], type2[0], epsilon * 0.01)
 
-		return 0.0  # If all else fails, assume they are equal
+        return 0.0  # If all else fails, assume they are equal
 
-	def standardize_type(typ: Any) -> List[Any]:
-		"""Convert a type annotation into a standardized format."""
-		origin = get_origin(typ)
-		args = get_args(typ)
-		if args:
-			if origin is Union or origin is types.UnionType:
-				return functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], [])
-			if origin in {list, List}:
-				return [('list', standardize_type(args[0]))]
-			if origin in {dict, Dict}:
-				return [('dict', standardize_type(args[0]), standardize_type(args[1]))]
-			if origin in {tuple, Tuple}:
-				return [('tuple', *functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], []))]
-			if origin in {set, Set}:
-				return [('set', standardize_type(args[0]))]
-		label = re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(typ)) if isinstance(typ, type) else str(typ)
-		if label.split('.')[-1].lower() in {'list', 'dict', 'tuple', 'set'}:
-			return [tuple([label.split('.')[-1].lower()] + ([['Any'], ['Any']] if 'ict' in label else [['Any']]))]
-		return [label]
+    def standardize_type(typ: Any) -> list[Any]:
+        """Convert a type annotation into a standardized format."""
+        origin = get_origin(typ)
+        args = get_args(typ)
+        if args:
+            if origin is typing._UnionGenericAlias or origin is types.UnionType:
+                return functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], [])
+            if origin in {list, List}:
+                return [('list', standardize_type(args[0]))]
+            if origin in {dict, Dict}:
+                return [('dict', standardize_type(args[0]), standardize_type(args[1]))]
+            if origin in {tuple, Tuple}:
+                return [('tuple', *functools.reduce(operator.iadd, [standardize_type(arg) for arg in args], []))]
+            if origin in {set, typing.Set}:
+                return [('set', standardize_type(args[0]))]
+        label = re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(typ)) if isinstance(typ, type) else str(typ)
+        if label.split('.')[-1].lower() in {'list', 'dict', 'tuple', 'set'}:
+            return [tuple([label.split('.')[-1].lower()] + ([['Any'], ['Any']] if 'ict' in label else [['Any']]))]
+        return [label]
 
-	def standardize_type_literal(obj: Any) -> List[Any]:
-		# should convert e.g. [(0, 0)] into standardize_type(List[Tuple[int, int]]) = [('list', [('tuple, (['int'], ['int']))])]
-		if isinstance(obj, type):
-			return standardize_type(obj)
-		if not isinstance(obj, (list, dict, tuple, set, List, Dict, Tuple, Set)):
-			return [re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(type(obj)))]
-		if isinstance(obj, (list, List)):
-			return [('list', standardize_type_literal(obj[0]))]
-		if isinstance(obj, (dict, Dict)):
-			return [('dict', standardize_type_literal(obj[0]), standardize_type_literal(obj[1]))]
-		if isinstance(obj, (tuple, Tuple)):
-			return [('tuple', *functools.reduce(operator.iadd, [standardize_type_literal(arg) for arg in obj], []))]
-		if isinstance(obj, (set, Set)):
-			return [('set', standardize_type_literal(obj[0]))]
-		return None
+    def standardize_type_literal(obj: Any) -> list[Any]:
+        # should convert e.g. [(0, 0)] into standardize_type(list[tuple[int, int]]) = [('list', [('tuple, (['int'], ['int']))])]
+        if isinstance(obj, type):
+            return standardize_type(obj)
+        if not isinstance(obj, (list, dict, tuple, set, List, typing.Dict, typing.Tuple, typing.Set)):
+            return [re.sub(r'<class [\'"](\w+)[\'"]>', r'\1', str(type(obj)))]
+        if isinstance(obj, (list, typing.List)):
+            return [('list', standardize_type_literal(obj[0]))]
+        if isinstance(obj, (dict, typing.Dict)):
+            return [('dict', standardize_type_literal(obj[0]), standardize_type_literal(obj[1]))]
+        if isinstance(obj, (tuple, typing.Tuple)):
+            return [('tuple', *functools.reduce(operator.iadd, [standardize_type_literal(arg) for arg in obj], []))]
+        if isinstance(obj, (set, typing.Set)):
+            return [('set', standardize_type_literal(obj[0]))]
+        return None
 
-	@functools.wraps(func)
-	def wrapper(*w_args: Any, **w_kwargs: Any) -> Any:
-		# print()
-		# Separate explicitly named arguments
-		explicit_args = {}
-		remaining_kwargs = {}
-		for name, value in w_kwargs.items():
-			if name in func_params:
-				explicit_args[name] = value
-			else:
-				remaining_kwargs[name] = value
+    @functools.wraps(func)
+    def wrapper(*w_args: Any, **w_kwargs: Any) -> Any:
+        # print()
+        # Separate explicitly named arguments
+        explicit_args = {}
+        remaining_kwargs = {}
+        for name, value in w_kwargs.items():
+            if name in func_params:
+                explicit_args[name] = value
+            else:
+                remaining_kwargs[name] = value
 
-		# Get the remaining parameters that need to be filled
-		remaining_param_names = [name for name in func_params if name not in explicit_args]
-		remaining_param_types = [standardize_type(type_hints[name]) for name in remaining_param_names]
-		# Match the remaining arguments to the parameters
-		matched_args = match_args_to_params(w_args, remaining_param_names, remaining_param_types)
-		# print(remaining_param_names, remaining_param_types, matched_args, remaining_kwargs, explicit_args)
+        # Get the remaining parameters that need to be filled
+        remaining_param_names = [name for name in func_params if name not in explicit_args]
+        remaining_param_types = [standardize_type(type_hints[name]) for name in remaining_param_names]
+        # Match the remaining arguments to the parameters
+        matched_args = match_args_to_params(w_args, remaining_param_names, remaining_param_types)
+        # print(remaining_param_names, remaining_param_types, matched_args, remaining_kwargs, explicit_args)
 
-		# Call the original function with the routed arguments
-		return func(**(matched_args | remaining_kwargs | explicit_args))
+        # Call the original function with the routed arguments
+        return func(**(matched_args | remaining_kwargs | explicit_args))
 
-	sig = inspect.signature(func)
-	func_params = sig.parameters
-	type_hints = get_type_hints(func)
-	return wrapper
+    sig = inspect.signature(func)
+    func_params = sig.parameters
+    type_hints = get_type_hints(func)
+    return wrapper
 
-def gen_stream(generator) -> str:
-    """
-    Generates a stream of server-sent events from a generator.
-    :param generator: A generator that yields chunks of data.
-    :yields: Formatted server-sent event strings.
+def gen_stream(generator) -> Generator[str, None, None]:
+    r"""
+    Wraps a data-yielding generator as a server-sent event (SSE) stream.
+
+    For each chunk produced by 'generator', yields a string in SSE JSON format: "data: {\"text\": <chunk>}\n\n".
+    Once the generator is exhausted, yields one final "data: [DONE]\n\n" marker.
+
+    :param generator: An iterator or generator yielding data chunks (strings).
+    :yield: SSE-formatted strings for each chunk.
     """
     for chunk in generator:
         if chunk:
@@ -586,34 +625,56 @@ def gen_stream(generator) -> str:
 
 def print_stream(generator, view: Callable = print) -> None:
     """
-    Prints a stream of server-sent events from a generator.
-    :param generator: A generator that yields chunks of data.
-    :param view: The function to use for printing the server-sent event strings.
-    :yields: none.
+    Prints each chunk from a data-yielding generator, optionally appending them to a single output.
+
+    Intended for streaming text or SSE-like sequences. For each chunk, 'view' is called. The default is the built-in print.
+
+    :param generator: A generator or iterator yielding data chunks.
+    :param view: A callable used to output each chunk, default is print().
+    :return: None
     """
     for chunk in generator:
         if chunk:
             view(chunk, end='')
 
-def get_parameter_values(func: F, args: List[Any], kwargs: Object) -> Object:
+def get_parameter_values(func: Func, args: list[Any], kwargs: Object) -> Object:
     """
-    Get the values of the parameters of a function that were passed as arguments.
-        E.g. for calling a function f(a, b=1, c=-1) as f(2, c=9), this function returns {'a':2, 'b':1, 'c':9}.
-    :param func: The function to get the parameter values of.
-    :param args: The positional arguments that were passed to the function.
-    :param kwargs: The keyword arguments that were passed to the function.
-    :returns: A dictionary mapping all parameter names to their values.
+    Retrieve bound parameter values from a function call, combining positional and keyword arguments.
+
+    This function uses the function's signature to figure out which parameter gets which argument (including
+    defaults). It returns a dictionary mapping parameter names to their final values.
+
+    :param func: The function whose call parameters come from args and kwargs.
+    :param args: The positional arguments as called.
+    :param kwargs: The keyword arguments as called.
+    :return: A dictionary of resolved parameter names mapping to the argument values in the call.
     """
     bound_args = inspect.signature(func).bind(*args, **kwargs)
     bound_args.apply_defaults()
     return dict(bound_args.arguments.items())
 
-def profile(obj: Any, max_depth: int = 5, prefix: str = "", visited: Optional[List] = None, depth: int = 0) -> List:
+def profile(
+    obj: Any,
+    max_depth: int = 5,
+    prefix: str = "",
+    visited: list | None = None,
+    depth: int = 0
+) -> list:
     """
-    like dir but recursive and much better in every way
-    I should really put this somewhere where it"ll get more use
-    max_module_depth is to prevent garden-variety modules that appear deep in from being expanded
+    Recursively examines the attributes of 'obj', returning a list of descriptive strings.
+
+    Skips special methods (names like __x__) and re-inspects objects up to a certain depth to avoid recursion loops.
+    If an attribute is a container (list, dict, etc.), it may be partially expanded. This is intended to provide a
+    broad overview of an object's structure, useful for debugging.
+
+    :param obj: The root object to profile.
+    :param max_depth: Maximum recursion depth.
+    :param prefix: A string prefix used for indentation or naming in the output lines.
+    :param visited: A list of object IDs visited so far (to prevent repeated recursion).
+    :param depth: The current depth of the recursion.
+    :return: A list of strings describing each attribute encountered.
     """
+    from types import MemberDescriptorType
     if visited is None or depth == 0:
         visited = []
     MAX_LINE_LENGTH = 40
@@ -712,7 +773,16 @@ def profile(obj: Any, max_depth: int = 5, prefix: str = "", visited: Optional[Li
     return strings
 
 def fuzzy_in(s1: str, s2: str) -> bool:
-    """fuzzy_in"""
+    """
+    Check if s1 is a subsequence (not necessarily contiguous) of s2.
+
+    This function attempts to match each character of s1 in order within s2. If s1 appears within s2 in
+    the correct sequence (though not necessarily contiguously), returns True; otherwise False.
+
+    :param s1: The potential subsequence string.
+    :param s2: The string to search within.
+    :return: True if s1 is a non-contiguous subsequence of s2, else False.
+    """
     # !jonge algorithm
     if not s1 or s1 in s2:
         return True
@@ -725,7 +795,16 @@ def fuzzy_in(s1: str, s2: str) -> bool:
         return False
 
 @super_func
-def regularize(obj) -> Any:
+def regularize(obj: Any) -> Any:
+    """
+    Convert various container or model objects to a more standard dictionary/list/primitive structure.
+
+    If 'obj' is a list-like or dict-like structure (or a pydantic model, or something with a `dict()` method),
+    it recursively converts them into standard Python lists or dictionaries. Primitives remain unchanged.
+
+    :param obj: Any object or nested container.
+    :return: A regularized version of 'obj' where container elements become built-in dicts, lists, or primitives.
+    """
     if isinstance(obj, (str, bool, int, float)) or obj is None:
         return obj
     if isinstance(obj, (list, List, tuple, Tuple)):
@@ -739,7 +818,7 @@ def regularize(obj) -> Any:
             r = method(obj)
             if not isinstance(r, dict):
                 raise TypeError("Output of regularize not a dict")
-        except Exception as e:
+        except Exception:
             pass  # print(type(obj), str(obj)[:20], e)
     return regularize(r)
 
@@ -747,10 +826,16 @@ def regularize(obj) -> Any:
 @super_func
 def select_keys(obj, keys) -> Any:
     """
-    renaming:  {link:foo.com}, {link:url} -> {url:foo.com}
-    selection: {a:1,b:2,...,z:26}, d -> 4
-    filtering: {a:1,b:2,...,z:26}, [a,c,v] -> {a:1,c:3,v:22}
-    recursion: {ab:{om:{a:1,z:26},du:ff}}, {ab:{du:ee,om:[b,z]}} -> {ab:{ee:ff,om:{z:26}}}
+    Recursively select or rename keys in a nested dictionary-like object.
+
+    - If 'keys' is a string, returns the value of that key in 'obj' if it exists, else None.
+    - If 'keys' is a list, returns a Dict containing only those key-value pairs whose keys are in the list.
+    - If 'keys' is a dict, allows renaming (string to string) or further nested selects:
+        {outer_key: new_key, outer_key2: {inner_key: new_name, ...}}
+
+    :param obj: A dictionary-like object to select from.
+    :param keys: The key(s) to select. May be string, list, or recursively structured dict.
+    :return: A new object or value following the selection/renaming pattern.
     """
     new_obj = Dict({})
     if isinstance(keys, str):
@@ -771,28 +856,29 @@ def select_keys(obj, keys) -> Any:
                     new_obj[k] = select_keys(obj[k], v)
     return new_obj
 
-def query(objects: List[Dict], key: str, value: Any, on_failure: Dict = {}) -> Dict:
+def query(objects: list[dict], key: str, value: Any, on_failure: dict = {}) -> dict:
     """
-    Get the first object from a list of dictionaries that matches a key==value query.
-    If no match is found, return on_failure.
-    :param objects: List of dictionaries to search through.
-    :param key: Key to search for.
-    :param value: Value to search for.
-    :param on_failure: Value to return if no match is found.
-    :returns: First object that matches the query, or on_failure if no match is found.
+    Retrieve the first dictionary from 'objects' whose [key] matches 'value'. If not found, return on_failure.
+
+    :param objects: List of dictionaries to search.
+    :param key: The key in each dictionary to check.
+    :param value: The matching criterion for that key.
+    :param on_failure: A fallback dictionary if no match is found.
+    :return: The first matching dictionary, or 'on_failure' if none match.
     """
     for obj in objects:
         if key in obj and obj[key] == value:
             return obj
     return on_failure
 
-def query_all(objects: List[Dict], key: str, value: Any) -> List[Dict]:
+def query_all(objects: list[dict], key: str, value: Any) -> list[dict]:
     """
-    Get all objects from a list of dictionaries that match a key==value query.
-    :param objects: List of dictionaries to search through.
-    :param key: Key to search for.
-    :param value: Value to search for.
-    :returns: List of all objects that match the query.
+    Return all dictionaries from 'objects' whose [key] matches 'value'.
+
+    :param objects: List of dictionaries to search.
+    :param key: The key in each dictionary to check.
+    :param value: The matching criterion for that key.
+    :return: A list of all dictionaries where dict[key] == value.
     """
     valid = List([])
     for obj in objects:
@@ -800,14 +886,23 @@ def query_all(objects: List[Dict], key: str, value: Any) -> List[Dict]:
             valid.append(obj)
     return valid
 
-def make_lines(text: str, row_len: int = 80, separators: List[str] = [" "], newlines: List[str] = ["\n"]) -> List[Tuple[int, str]]:
+def make_lines(
+    text: str,
+    row_len: int = 80,
+    separators: list[str] = [" "],
+    newlines: list[str] = ["\n"]
+) -> list[tuple[int, str]]:
     """
-    Parses text into lines, respecting row length and separators.
-    :param text: The text to be parsed.
-    :param row_len: The maximum length of each line.
-    :param separators: A list of characters considered separators.
-    :param newlines: A list of characters that trigger a new line.
-    :returns: A list of lines, where each line is a list containing its 1-based index and the line content as a string.
+    Break a chunk of text into lines, respecting a maximum row length and optional newline characters.
+
+    The function slices text into lines of up to 'row_len' characters, trying to cut at a suitable separator.
+    If a newline character is encountered, it forces a line break.
+
+    :param text: The input text to be split.
+    :param row_len: Maximum characters allowed on a single line.
+    :param separators: Characters considered as valid breakpoints within a line.
+    :param newlines: Characters that force an immediate newline.
+    :return: A list of lines in the form (line_number, line_content).
     """
 
     lines = []
@@ -862,9 +957,16 @@ def make_lines(text: str, row_len: int = 80, separators: List[str] = [" "], newl
 
 @super_func
 def gen_pseudoword(length: int, state: int = 0) -> str:
-    '''
-    Generates a pseudoword of a given length, for nonce IDs and such
-    '''
+    """
+    Generates a pseudoword of a given length, potentially for placeholders or random short IDs.
+
+    Uses a naive approach with vowels and consonants, occasionally appending combined patterns.
+    The 'state' parameter influences random choice among vowels/consonants, for the recursive call.
+
+    :param length: The number of characters to include in the pseudoword.
+    :param state: A numeric state that can randomly shift the balance of consonant/vowel patterns. Leave it at 0.
+    :return: A randomly generated pseudoword string of length 'length'.
+    """
     vowel_p = 0.3
     p, is_vowel, vowels, consonants = length, random.random() < vowel_p, 'aeio', 'bcdfgklmnprstv'
     options_dict = {i[0]: random.choice(i[1:]) for i in ['ai', 'eia', 'oui', 'blr', 'chlr', 'dr', 'ffl', 'kh', 'll', 'ndg', 'ph', 'rh', 'sh', 'th', 'whr']}

@@ -3,18 +3,22 @@ Abstractions and frameworks for constructing text transformers.
 
 Contains:
     pipe_factory
-        (options_global: Options = None) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]
+        (options_global: Options = None) -> Callable[[str, list[tuple[str, str]], End[str], Options], Pipe]
     load_pipe
         (path: str) -> Pipe
 """
 
-from .completion import *
-from requests import get as requests_get
-Options = Optional[Object]
+from __future__ import annotations
+
+from src.basetypes import *  # re, typing
+from src.supertypes import *  # builtins, functools, inspect, itertools, operator, logging
+from src.utilities import *  # datetime, json, os, sqlite3, time, types, random, requests
+from src.tools import *  # ast
+from src.completion import *
 
 def pipe_factory(
         options_global: Options = None
-    ) -> Callable[[str, List[Tuple[str, str]], End[str], Options], Pipe]:
+    ) -> Callable[[str, list[tuple[str, str]], End[str], Options], Pipe]:
     """
     Creates a function that pipes an n-shot prompt (prompt + list of examples) to the chat_completion function.
     :param options_global: The global options to be used in the chat_completion function.
@@ -22,7 +26,7 @@ def pipe_factory(
     """
     def pipe_constructor(
             prompt: str,
-            examples: List[Tuple[str, str]],
+            examples: list[tuple[str, str]],
             expander: End[str] = lambda x: x,
             options_local: Options = None
     ) -> Pipe:

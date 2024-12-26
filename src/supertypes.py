@@ -1,172 +1,50 @@
 """
 Provides a set of interlacing wrappers for Python's functions and container types
-
-Defines types:
-    Typevars
-        T, X, Y
-    Bound typevars
-        F                   Callable[..., Any]
-    Generic typevars
-        End[T]              Callable[[T], T]
-        Hom[X, Y]           Callable[[X], Y]
-        Decorator           Callable[[F], F]
-        Object              Dict[str, Any]
-        Pipe                Callable[[str, Optional[Object]], str]
-
 Contains:
-    class Null
-    class Void
-    class Fail
-
-    is_list, is_dict, is_tuple, is_set, is_container, is_type
-        (x: Any) -> bool
-
-    class Multi(list)
-        is_container        (obj: Any) -> bool
-        walk                (obj: Any, path: Optional[list] = None) -> Any
-        build_skeleton      (obj: Any) -> Any
-        set_nested          (obj: Any, path: list, value: Any) -> Any
-
-    class MetaMeta(type)
-
-    class Meta(metaclass=MetaMeta)
-        is_meta             (cls, obj) -> bool
-
     class Fun
-        check               (cls: Any) -> bool
-        form                (sig: str, call: str, fn: Optional[Callable] = None, return_former: bool = False, wrap: bool = False) -> Callable
+        check               (obj: Any) -> bool
+        form                (sig: str, call: str, fn: Callable | None = None, return_former: bool = False, wrap: bool = False) -> Callable
 
     class Dict(dict)
-        check               (cls) -> bool
-        filter              (self, predicate: Callable) -> Dict
-        map, mapKeys        (self, f) -> Dict
+        check               (obj: Any) -> bool
+        filter              (self, predicate: Callable) -> dict
+        map, mapKeys        (self, f: Callable) -> dict
         pop, get            (self, key: Any, default: Any = None) -> Any
         keys, values, items (self) -> list
 
     class List(list)
-        check               (cls) -> bool
-        map                 (self: List[X], f: Callable[[X], Y]) -> List[Y]
-        filter              (self: List[T], f: Callable[[T], bool]) -> List[T]
-        asyncMap            (func: Callable[[X], Y], arr: List[X], workers: int = 32) -> List[Y]
+        check               (obj: Any) -> bool
+        map                 (self: list[X], f: Callable[[X], Y]) -> list[Y]
+        filter              (self: list[T], f: Callable[[T], bool]) -> list[T]
+        asyncMap            (func: Callable[[X], Y], arr: list[X], workers: int = 32) -> list[Y]
 
     class Tuple(list)
-        check               (cls: Any) -> bool
-        map, filter         (self, f) -> Tuple
+        check               (obj: Any) -> bool
+        map, filter         (self, f: Callable) -> Tuple
 
-    map, filter             (f, L) -> List
+    map, filter             (f: Callable, L: list) -> list
     id                      (x: Any) -> Any
     comp                    (*args) -> Fun
     reduce                  (opn: Callable, values: Any, base: Any) -> Any
-    const                   (c, x) -> Any
-    sub                     (pattern, oldstr, newstr) -> str
+    const                   (c: Any, x: Any) -> Any
+    sub                     (pattern: str, oldstr: str, newstr: str) -> str
     get_attr                (obj: Any, attr: str) -> Any
     ...read, readlines, nonempty, match, split, strip, select, get, cmd, prnt
 """
 from __future__ import annotations
 
+from src.basetypes import *
+
 import builtins
 import functools
 import inspect
 import itertools
-import operator
+import json
 import logging
-import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import operator
 from pydantic_core import core_schema
-from pydantic import BaseModel, create_model
-# types
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_completed
 
-from typing import TypeVar, TypeVarTuple, Unpack, TypeAlias, ParamSpec
-from typing import Any, Optional, Union, Callable, Generic, cast, overload
-from typing import _GenericAlias, _SpecialForm, _UnionGenericAlias  # noqa: PLC2701
-from typing import get_args, get_origin, get_type_hints
-
-from collections import UserDict, UserList
-from collections.abc import Hashable, Iterable, Generator, Callable
-from enum import Enum
-from types import MemberDescriptorType
-import typing
-from toolz import curry, partial, reduce, map  # noqa: A004
-
-# Should look at https://boltons.readthedocs.io/en/latest/ and https://github.com/jab/bidict
-
-T, X, Y = TypeVar('T'), TypeVar('X'), TypeVar('Y')
-T1, Ts = TypeVar('T1'), TypeVarTuple('Ts')
-End = Callable[[*Ts], T]
-F = TypeVar('F', bound=Callable[..., Any])
-Decorator = End[F]
-Object = typing.Dict[str, Any]
-Pipe = Callable[[str, Optional[Object]], str]
-
-
-# Backup the original __repr__ method
-original_generic_alias_repr = _GenericAlias.__repr__
-
-# Define a new __repr__ method responsible for displaying e.g. {"a": List[int], "b": Optional[UserData]} instead of {"a": src.supertypes.List[int], "b": typing.Optional[ModelMetaclass]}
-def custom_generic_alias_repr(obj: Any) -> str:
-    # Extract the base name of the type (e.g., 'List' from 'src.supertypes.List')
-    if isinstance(obj, BaseModel):
-        return obj.__class__.__name__
-    base_name = get_attr(obj, "_name") or get_attr(obj, "__origin__.__name__") or get_attr(obj, "__qualname__") or str(obj)
-    if args := get_attr(obj, "__args__"):
-        new_args = []
-        for arg in args:
-            new_arg = repr(arg)
-            if isinstance(arg, (type, _SpecialForm, _UnionGenericAlias)):
-                new_arg = custom_generic_alias_repr(arg)
-            if new_arg != "NoneType" or base_name != "Optional":
-                new_args.append(new_arg)
-        return f"{base_name}[{', '.join(new_args)}]"
-    return base_name
-
-# Temporarily override the __repr__ method
-_GenericAlias.__repr__ = custom_generic_alias_repr
-
-
-class Null:
-    """
-    A null object. Methods are to treat it as though it wasn't there.
-    Semantically,
-        - {"a": None} is a dictionary with a value None, while {"a": Null} is empty.
-        - add(3, None) should raise an error b/c you can't add 3 and None, while add(3, Null) should raise an error b/c add takes two arguments.
-    """
-    pass
-null = Null()
-
-class Void:
-    """
-    A void object.
-    """
-    pass
-
-class Fail:
-    """
-    A failure object.
-    """
-    pass
-
-def is_list(x: Any) -> bool:
-    return isinstance(x, (list, List, typing.List))
-
-def is_dict(x: Any) -> bool:
-    return isinstance(x, (dict, Dict, typing.Dict))
-
-def is_tuple(x: Any) -> bool:
-    return isinstance(x, (tuple, Tuple, typing.Tuple))
-
-def is_set(x: Any) -> bool:
-    return isinstance(x, (set, typing.Set))
-
-def is_container(x: Any) -> bool:
-    return is_list(x) or is_dict(x) or is_tuple(x) or is_set(x)
-
-def is_type(x: Any) -> bool:
-    return isinstance(x, type)
-
-Mask: TypeAlias = Union['Symbol[T]', T]
-# An x_: Symbol[T] is thought of as a 'generalized element' of T
-#    , or a morphism with codomain T, in the same sense that x: 1 -> T is an element of T.
-# t_: Mask[T] represents something to be treated as an element of T.
 
 class SymbolBase(type):
     """Metaclass for Symbol that automatically creates operator methods."""
@@ -195,7 +73,12 @@ class SymbolBase(type):
         obj: type = super().__new__(cls, name, bases, attrs)
         return obj
 
-class Symbol(Generic[T], metaclass=SymbolBase):
+Mask: TypeAlias = 'Symbol[T]' | T
+# An x_: Symbol[T] is thought of as a 'generalized element' of T
+#    , or a morphism with codomain T, in the same sense that x: 1 -> T is an element of T.
+# t_: Mask[T] represents something to be treated as an element of T.
+
+class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
     """
     A symbolic computation class that enables lazy evaluation of expressions. Symbols can be combined and manipulated to form
         abstract computations that are only executed when specific values are provided.
@@ -206,21 +89,29 @@ class Symbol(Generic[T], metaclass=SymbolBase):
             and can be used like `this[0]([1,2,3])` to get 1.
     Really, we're just exploiting magic methods in order to enable a clean syntax for defining expressions.
     All built-in binary functions and comparison operators are supported, and most unary operators are, too.
+
+    Inheriting Preemptive allows symbols to act like free variables in pre-emptable functions:
+        - if f(a, b, c) = a + b + c is pre-emptable and _x = Symbol('x'), then
+            f(1, _x**2, 3) is a function sending x to 1 + x^2 + 3, so f(1, _x**2, 3)(5) = 1 + 5**2 + 3 = 29
     """
     @overload
     def __init__(self, symbol: str) -> None: ...
+
     @overload
-    def __init__(self, binds: list[Symbol], defn: Callable[[Symbol[T], dict], T]) -> None: ...
+    def __init__(self, binds: str | list[Symbol], defn: Callable[[Symbol[T], dict], T]) -> None: ...
+
     def __init__(self,
-                 symbol: Optional[str] = None,
-                 binds: list[Symbol] = [],
-                 defn: Callable[[Symbol[T], dict], T] = curry(lambda s, kw: kw.get(s._symbol)),
-                 config: dict[str, Any] = {}
+                 symbol: str | None = None,
+                 binds: str | list[Symbol] = [],
+                 defn: Callable[[Symbol[T], dict], T] = lambda s, kw: kw.get(s._symbol),
+                 printer: Callable[[str | tuple[str, ...]], str] = lambda *s: "[{}]".format(", ".join(s)),
+                 config: Options = {}
         ) -> None:
         """
         :param symbol: The string used to indicate the symbol. If none, the symbol is 'anonymous', but will be given a standardized name.
         :param binds: A list of Symbol objects that this one depends on.
         :param defn: Method of evaluating the expression on some parameters.
+        :param printer: Method of forming a string representation of the symbol from a string representation of its binds.
         :param config: Configuration options for the Symbol object.
         """
         if not isinstance(binds, (str, list)):
@@ -228,13 +119,16 @@ class Symbol(Generic[T], metaclass=SymbolBase):
 
         self._binds: list[Symbol] = binds
         self._anonymous: bool = symbol is None
+        self._defn: Callable[[Arguments], T]
         if self._anonymous:
             self._symbol: str = f'a_{next(Symbol._indexer)}'
+            if len(self._binds) == 0:  # literally just called Symbol()
+                raise ValueError("Can't have an anonymous Symbol with no binds")
         else:
             self._symbol: str = symbol
-        self._defn: Callable[[dict[str, Any]], T]
+        self._printer: Callable[[str | tuple[str, ...]], str] = printer
 
-        def _defn(kwargs: dict[str, Any]) -> T:
+        def _defn(kwargs: Arguments) -> T:
             try:
                 return defn(self, kwargs)
             except Exception as e:
@@ -244,15 +138,22 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         self._cfg = config
 
         self._subs: list[Symbol] = self._binds if self._anonymous or len(self._binds) > 1 else []
-        self._roots: set[str] = {self._symbol} if not self._anonymous else set.union(*[sub._roots for sub in self._subs])
+        self._roots: set[str] = {self._symbol} if not self._anonymous else set.union(*[sub._roots for sub in self._subs], set())
         self._arity: int = len(self._roots)
         self._router: dict[str, list[Symbol]] = {root: [] for root in self._roots}
         self._route_back: dict[str, list[Symbol]] = {root: [] for root in self._roots}
-        self._order: list[str] = [self._symbol] if not self._anonymous else list(reduce(
-            lambda a, b: dict.fromkeys(a, None) | dict.fromkeys(b, None),
-            self._roots,
-            {}
-        ))
+        self._order: list[str]
+        if len(self._roots) == 1:
+            self._order = list(self._roots)
+        else:
+            self._order = [self._symbol] if not self._anonymous else list(reduce(
+                lambda a, b: dict.fromkeys(a, None) | dict.fromkeys(b, None),
+                self._roots,
+                {}
+            ))
+
+        if self._anonymous:
+            self._order = sorted(self._order, key=lambda x: [x in sub._roots for sub in self._subs].index(True))
         self._cache: dict[str, Any] = {}
         self._persistent: dict[str, Any] = {}
 
@@ -280,16 +181,40 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         #   _router: dict mapping each root to a list of Symbols that depend on it
         #   _subs: list of Symbols that this one depends on
 
-    def _route(self, kwargs: dict[str, Any]) -> list[tuple[Symbol, dict[str, Any]]]:
-        """Route kwargs to the appropriate Symbol objects."""
+    def _route(self, kwargs: Arguments) -> list[tuple[Symbol, Arguments]]:
+        """
+        Route kwargs to the appropriate Symbol objects.
+        :param kwargs: The keyword arguments to route.
+        :returns: A list of tuples, where each tuple contains a Symbol and a dictionary of keyword arguments that should be passed to it.
+        """
         if self._subs:
             return [(sub, {root: val for root, val in kwargs.items() if root in sub._roots}) for sub in self._subs]
         return [(self, kwargs)]
 
-    def _config(self, key: str, new_val: Optional[Any] = None, default: Optional[Any] = None) -> Any:
+    def _config(self, key: str, new_val: Any | None = None, default: Any | None = None) -> Any:
+        """
+        Get or set a configuration option for the Symbol object.
+        :param key: The key to get or set.
+        :param new_val: The new value to set (optional).
+        :param default: The default value to return if the key is not found (optional).
+        :returns: The value of the configuration option.
+        """
         if new_val is not None:
             self._cfg[key] = new_val
         return self._cfg.get(key, default)
+
+    @classmethod
+    def __preempt__(cls, fn: Callable, arguments: dict) -> tuple[Callable, dict]:
+        class_args, remaining_args = cls.__sieve__(arguments)
+
+        def fn_out(**args) -> Callable[[Symbol, dict], Any]:
+            def new_defn(_self: Symbol, symkwargs: dict) -> Any:
+                return fn( **({k: v(**symkwargs) for k, v in class_args.items()} | args) )
+            return new_defn
+
+        def make_symbol(**args) -> Symbol:
+            return Symbol(binds = list(class_args.values()), defn = fn_out(**args))
+        return make_symbol, remaining_args
 
     def __call__(self, *args, **kwargs) -> T:
         """
@@ -299,10 +224,12 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         :return: Result of the evaluation.
         """
         try:
+            if len(self._roots) == 0:
+                return self._defn({})
             if len(args) + len(kwargs) > self._arity:
-                if not self._config('extra_kwargs', default=True):
+                if not self._cfg('extra_kwargs', default=True):
                     msg = f"Too many arguments: expected {self._arity}, got {len(args) + len(kwargs)}"
-                    raise TypeError(msg)
+                    raise ValueError(msg)
 
             if len(args) == self._arity == 1:
                 args, kwargs = [], {next(iter(self._roots)): args[0]}
@@ -311,6 +238,8 @@ class Symbol(Generic[T], metaclass=SymbolBase):
                     kwargs[var] = arg
             missing_vars = self._roots - kwargs.keys()
             if missing_vars == self._roots:
+                # We want to accept extraneous variables so closures can be freely passed in,
+                #   but if not a single variable is a root, something is wrong.
                 msg = f"No values provided for {self._symbol} by call {args, kwargs}"
                 raise ValueError(msg)
             if missing_vars:
@@ -320,12 +249,14 @@ class Symbol(Generic[T], metaclass=SymbolBase):
                 kwargs = {k: kwargs[k] for k in self._order if k in kwargs}
 
             # Merge with persistent values
-            _kwargs = {**self._persistent, **kwargs}
+            full_kwargs = {**self._persistent, **kwargs}
 
             # Evaluate and update cache
-            self._cache.update(_kwargs)
-            if not self._roots - _kwargs.keys():
-                result = self._defn(_kwargs)
+            self._cache.update(full_kwargs)
+
+            # If ALL roots were filled, we evaluate the function directly
+            if not self._roots - full_kwargs.keys():
+                result = self._defn(full_kwargs)
                 # Apply lazy evaluation chain
                 if self._lazy_chain:
                     for func in self._lazy_chain:
@@ -333,16 +264,19 @@ class Symbol(Generic[T], metaclass=SymbolBase):
                 self._cache[self._symbol] = result
                 return result
 
+            # Otherwise, we create a new symbol with the partial evaluation
+
             # Common pattern: to create a new Symbol from an existing one,
             #   the new definition should have _self at the start, for the new symbol to use, but
             #   it should use self._defn, not _self._defn (which would cause a circular reference).
-            def new_defn(_self, kwargs: dict[str, Any]) -> T:
-                return self._defn(_kwargs | kwargs)
+            def new_defn(_self, kwargs: Arguments) -> T:
+                return self._defn(full_kwargs | kwargs)
 
             sym = Symbol(binds=[self], defn=new_defn)
-            sym._roots = {x for x in sym._roots if x not in _kwargs}
+            sym._roots = {x for x in sym._roots if x not in full_kwargs}
             sym._arity = len(sym._roots)
             return sym
+
         except Exception as e:
             msg = f"Error evaluating {self._symbol}: {e!s}"
             if self._config('debug', False):
@@ -351,21 +285,12 @@ class Symbol(Generic[T], metaclass=SymbolBase):
                 traceback.print_exc()
             raise ValueError(msg) from e
 
-    def __getattr__(self, name: str) -> Symbol[Any]:
-        """Enhanced attribute access with support for method chaining."""
-        if name.startswith('_'):
-            return super().__getattr__(name)
-
-        def wrapped_getattr(_self, kwargs: dict[str, Any]) -> Any:
-            obj = self._defn(kwargs)
-            attr = getattr(obj, name)
-            return attr
-
-        return Symbol(binds=[self], defn=wrapped_getattr)
-
-    def maybe(self) -> Symbol[Optional[T]]:
-        """Convert to optional type that handles exceptions gracefully."""
-        def safe_eval(_self, kwargs: dict[str, Any]) -> Optional[T]:
+    def maybe(self) -> Symbol[T | None]:
+        """
+        Convert to optional type that handles exceptions gracefully.
+        :returns: A new Symbol object that returns None if evaluation fails.
+        """
+        def safe_eval(_self, kwargs: Arguments) -> T | None:
             try:
                 return self._defn(kwargs)
             except Exception:
@@ -373,8 +298,12 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         return Symbol(binds=[self], defn=safe_eval)
 
     def default(self, value: T) -> Symbol[T]:
-        """Provide a default value if evaluation fails."""
-        def default_eval(_self, kwargs: dict[str, Any]) -> T:
+        """
+        Provide a default value if evaluation fails.
+        :param value: The default value to return if evaluation fails.
+        :returns: A new Symbol object that returns the default value if evaluation fails.
+        """
+        def default_eval(_self, kwargs: Arguments) -> T:
             try:
                 return self._defn(kwargs)
             except Exception:
@@ -382,8 +311,12 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         return Symbol(binds=[self], defn=default_eval)
 
     def guard(self, predicate: Callable[[T], bool]) -> Symbol[T]:
-        """Add a validation predicate that must pass."""
-        def guarded_eval(_self, kwargs: dict[str, Any]) -> T:
+        """
+        Add a validation predicate that must pass.
+        :param predicate: The predicate function to validate the result.
+        :returns: A new Symbol object that applies the predicate to the result.
+        """
+        def guarded_eval(_self, kwargs: Arguments) -> T:
             result = self._defn(kwargs)
             if not predicate(result):
                 msg = f"Guard failed for {self._symbol}"
@@ -392,27 +325,44 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         return Symbol(binds=[self], defn=guarded_eval)
 
     def tap(self, func: Callable[[T], Any]) -> Symbol[T]:
-        """Add a side effect without modifying the value."""
-        def tapped_eval(_self, kwargs: dict[str, Any]) -> T:
+        """
+        Add a side effect without modifying the value.
+        :param func: The function to apply to the result.
+        :returns: A new Symbol object that applies the function to the result.
+        """
+        def tapped_eval(_self, kwargs: Arguments) -> T:
             result = self._defn(kwargs)
             func(result)
             return result
         return Symbol(binds=[self], defn=tapped_eval)
 
     def _update_persistent(self, updates: dict[str, Any]) -> None:
-        """Update persistent values and propagate changes upwards."""
+        """
+        Update persistent values and propagate changes upwards.
+        :param updates: A dictionary of updates to apply.
+        """
         self._persistent.update(updates)
         for key, val in updates.items():
             for parent in self._route_back.get(key, []):
                 parent._update_persistent({key: val})
 
-    def _copy(self, original: Symbol[T1]) -> Symbol[T1]:
+    def _copy(self, original: Symbol[T]) -> Symbol[T]:
+        """
+        Create a shallow copy of the Symbol object.
+        :param original: The Symbol object to copy.
+        :returns: A new Symbol object that is a shallow copy of the original.
+        """
         self._roots = original._roots.copy()
         self._router = original._router.copy()
         self._order = original._order.copy()
         return self
 
-    def _total_copy(self, original: Symbol[T1]) -> Symbol[T1]:
+    def _total_copy(self, original: Symbol[T]) -> Symbol[T]:
+        """
+        Create a deep copy of the Symbol object.
+        :param original: The Symbol object to copy.
+        :returns: A new Symbol object that is a deep copy of the original.
+        """
         self._anonymous = original._anonymous
         self._arity = original._arity
         self._binds = original._binds.copy()
@@ -429,21 +379,23 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         return self
 
     def __getitem__(self, key: Any) -> Symbol[Any]:
-        def new_defn(_self, kwargs: dict[str, Any]) -> Any:
+        def wrapped_getitem(_self, kwargs: Arguments) -> Any:
             return self._defn(kwargs)[key]
-        return Symbol(binds=[self], defn=new_defn)
+        new_printer = lambda s: f"{s}[{key}]"
+        return Symbol(binds=[self], defn=wrapped_getitem, printer=new_printer)
 
-    def __getattr__(self, name: str) -> Symbol[Any]:
-        if name.startswith('_'):  # return the actual attribute
+    def __getattr__(self, name: str) -> Symbol[Any] | Any:
+        if name.startswith('_'):
+            # marks internal attributes
             try:
                 return object.__getattribute__(self, name)
             except AttributeError as e:
                 msg = f"Symbol has no attribute {name}"
                 raise AttributeError(msg) from e
 
-        def new_defn(_self, kwargs: dict[str, Any]) -> Any:
+        def wrapped_getattr(_self, kwargs: Arguments) -> Any:
             return getattr(self._defn(kwargs), name)
-        return Symbol(binds=[self], defn=new_defn)
+        return Symbol(binds=[self], defn=wrapped_getattr, printer=lambda s: f"{s}.{name}")
 
     def __str__(self) -> str:
         """Return a string representation of the Symbol."""
@@ -451,30 +403,37 @@ class Symbol(Generic[T], metaclass=SymbolBase):
 
     def __repr__(self) -> str:
         """Return a detailed string representation of the Symbol."""
-        return f"Symbol(symbol={self._symbol}, binds={self._binds})"
+        return self._printer(*[sub.__repr__() for sub in self._binds]) if self._binds else self._symbol
 
     @staticmethod
     def _binary_operator(method_name: str, op_func: Callable[[T, T1], X]) -> Callable[[Symbol[T], Mask[T1]], Symbol[X]]:
-        """Creates a binary operator method for Symbol."""
+        """
+        Creates a binary operator method for Symbol.
+        :param method_name: The name of the method.
+        :param op_func: The operator function to apply.
+        :returns: A function that applies the operator to Symbol objects.
+        """
 
         def method(self: Symbol[T], other: Mask[T1]) -> Symbol[X]:
             if isinstance(other, Symbol):
                 # Create a new anonymous node
-                def new_defn(_self: Symbol, kwargs: dict[str, Any]) -> X:
+                def new_defn(_self: Symbol, kwargs: Arguments) -> X:
                     try:
                         return op_func(*[sub(**kwargs) for sub, kwargs in _self._route(kwargs)])
                     except Exception as e:
                         msg = f"Error in {method_name}: {e}"
                         raise ValueError(msg) from e
-                return Symbol(binds=[self, other], defn=new_defn)
+                new_printer = lambda s, t: f"({self!r} {method_name.strip('_')} {other!r})"
+                return Symbol(binds=[self, other], defn=new_defn, printer=new_printer)
 
-            def new_defn(_self, kwargs: dict[str, Any]) -> X:
+            def new_defn(_self, kwargs: Arguments) -> X:
                 try:
                     return op_func(self._defn(kwargs), other)
                 except Exception as e:
                     msg = f"Error in {method_name} with constant: {e}"
                     raise ValueError(msg) from e
-            return Symbol(binds=[self], defn=new_defn)
+            new_printer = lambda s: f"({self!r} {method_name.strip('_')} {other})"
+            return Symbol(binds=[self], defn=new_defn, printer=new_printer)
         method.__name__ = method_name
         return method
 
@@ -488,13 +447,14 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         :return: A function that applies the operator to Symbol objects.
         """
         def method(self: Symbol[T], other: Mask[T1]) -> Symbol[X]:
-            def new_defn(_self, kwargs: dict[str, Any]) -> X:
+            def new_defn(_self, kwargs: Arguments) -> X:
                 try:
                     return op_func(other, self._defn(kwargs))
                 except Exception as e:
                     msg = f"Error in reverse binary operation {method_name}: {e!s}"
                     raise ValueError(msg) from e
-            return Symbol(binds=[self], defn=new_defn)
+            new_printer = lambda s: f"({other} {method_name.strip('_')} {self!r})"
+            return Symbol(binds=[self], defn=new_defn, printer=new_printer)
         method.__name__ = method_name
         return method
 
@@ -508,13 +468,14 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         :return: A function that applies the operator to a Symbol object.
         """
         def method(self: Symbol[T]) -> Symbol[X]:
-            def new_defn(_self, kwargs: dict[str, Any]) -> X:
+            def new_defn(_self, kwargs: Arguments) -> X:
                 try:
                     return op_func(self._defn(kwargs))
                 except Exception as e:
                     msg = f"Error in unary operation {method_name}: {e!s}"
                     raise ValueError(msg) from e
-            return Symbol(None, binds=[self], defn=new_defn)
+            new_printer = lambda _: f"{method_name.strip('_')}({self!r})"
+            return Symbol(None, binds=[self], defn=new_defn, printer=new_printer)
         method.__name__ = method_name
         return method
 
@@ -529,7 +490,7 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         """
         def method(self: Symbol[T], other: Mask[T1]) -> Symbol[bool]:
             if isinstance(other, Symbol):
-                def new_defn(_self: Symbol[bool], kwargs: dict[str, Any]) -> bool:
+                def new_defn(_self: Symbol[bool], kwargs: Arguments) -> bool:
                     try:
                         return op_func(*[sub(**kwargs) for sub, kwargs in _self._route(kwargs)])
                     except Exception as e:
@@ -542,7 +503,7 @@ class Symbol(Generic[T], metaclass=SymbolBase):
                 new_symbol._order = self._order.copy()
                 new_symbol._order.extend(v for v in other._order if v not in new_symbol._order)
             else:
-                def new_defn(_self, kwargs: dict[str, Any]) -> bool:
+                def new_defn(_, kwargs: Arguments) -> bool:
                     try:
                         return op_func(self._defn(kwargs), other)
                     except Exception as e:
@@ -567,23 +528,6 @@ class Symbol(Generic[T], metaclass=SymbolBase):
         method.__name__ = method_name
         return method
 
-    @staticmethod
-    def lift(func: Callable[..., T], name: Optional[str] = None) -> Callable[..., Symbol[T]]:
-        """Lift a regular function into the Symbol context."""
-        if name is None:
-            name = func.__name__
-
-        def lifted(*args, **kwargs) -> Symbol[T]:
-            symbols = [arg for arg in args if isinstance(arg, Symbol)]
-
-            def eval_lifted(_self, kw: dict[str, Any]) -> T:
-                resolved_args = [(arg(**kw) if isinstance(arg, Symbol) else arg) for arg in args]
-                resolved_kwargs = {k: (v(**kw) if isinstance(v, Symbol) else v) for k, v in kwargs.items()}
-                return func(*resolved_args, **resolved_kwargs)
-            return Symbol(name, symbols, eval_lifted)
-
-        return lifted
-
 binary_op_names = ['add', 'and_', 'floordiv', 'lshift', 'matmul', 'mod', 'mul', 'or_', 'pow', 'rshift', 'sub', 'truediv', 'xor']
 
 ops = {
@@ -599,196 +543,23 @@ for op_type, op_dict in ops.items():
         setattr(Symbol, method_name, getattr(Symbol, f"_{op_type}_operator")(method_name, op_func))
 
 
-class Multi(UserList):
+this = Symbol("this")
+
+def arm(fn_builder: Callable[..., Callable[..., T]], *fn_args, **fn_kwargs) -> Callable[..., T]:
     """
-    A class that represents multi-valued parameters.
-    Wrapped functions distribute over Multi-params: F(<2,3,4>)=<F(2),F(3),F(4)>.
+    Arms a function builder with a set of arguments to apply to built functions.
+    Can be used with symbols to create dependent functions.
+    Idea: map(els, this.method) returns a list of element methods, but map(els, arm(this.method)) actually computes the method at each element.
+    Ex: List(strings).filter(this.strip) doesn't work, since it filters on (truthy) strip *methods*, but List(strings).filter(arm(this.strip)) actually filters on the method applied to each element, returning the desired list of non-whitespace strings.
+    :param fn_builder: The function builder to arm.
+    :param fn_args: The arguments to arm the function builder with.
+    :param fn_kwargs: The keyword arguments to arm the function builder with.
+    :returns: A new function that, when called, will produce the original function builder with the given arguments.
     """
-    def __init__(self, *args) -> None:
-        super(Multi, self).__init__(args)
+    def fn(*args, **kwargs) -> T:
+        return fn_builder(*args, **kwargs)(*fn_args, **fn_kwargs)
+    return fn
 
-    def __repr__(self) -> str:
-        """
-        Returns a string representation of the Multi instance.
-        """
-        return f"<{', '.join([repr(w) for w in self])}>"
-
-    def __str__(self) -> str:
-        """
-        Returns a string representation of the Multi instance.
-        """
-        return f"<{', '.join([str(w) for w in self])}>"
-
-    @staticmethod
-    def is_container(obj: Any) -> bool:
-        """
-        Checks if the given object is a container type.
-        :param obj: The object to check.
-        :returns: True if the object is a container type, False otherwise.
-        """
-        return isinstance(obj, (Multi, typing.List, typing.Dict, typing.Tuple, list, dict, tuple, set))
-
-    @staticmethod
-    def walk(obj: Any, path: List = []) -> Any:
-        """
-        Recursively traverses the given object, yielding the path and value of each element
-        :param obj: The object to traverse.
-        :param path: The current path (optional).
-        :yields: A tuple containing the path and value of each element.
-        """
-        if isinstance(obj, Multi):
-            for i, item in enumerate(obj):
-                yield from Multi.walk(item, path + [(i, obj)])
-        elif isinstance(obj, (typing.Dict, dict)):
-            for k, v in obj.items():
-                yield from Multi.walk(v, path + [(k, obj)])
-        elif isinstance(obj, (typing.List, list, typing.Tuple, tuple, set)):
-            for i, item in enumerate(obj):
-                yield from Multi.walk(item, path + [(i, obj)])
-        else:
-            yield path, obj
-
-    @staticmethod
-    def build_skeleton(obj: Any) -> Any:
-        """
-        Recursively builds a skeleton of the given object, replacing non-container values with None.
-        :param obj: The object to build a skeleton for.
-        :returns: The skeleton of the given object.
-        """
-        return build_skeleton(obj)
-
-def register_all(types: Tuple) -> Decorator:
-    def wrapper(func: F) -> F:
-        dispatcher = functools.singledispatch(func)
-        for t in types:
-            dispatcher.register(t)(func)
-        functools.update_wrapper(dispatcher, func)
-        return dispatcher
-    return wrapper
-
-
-@functools.singledispatch
-def build_skeleton(obj: Any) -> Any:
-    """Base case for non-container types."""
-    return None
-
-@register_all((Multi, dict, list, tuple, set))
-def build_skeleton(obj: Any) -> Any:
-    if isinstance(obj, Multi):
-        return Multi(*[build_skeleton(item) for item in obj])
-    if isinstance(obj, (dict, typing.Dict)):
-        return type(obj)({k: build_skeleton(v) for k, v in obj.items()})
-    if isinstance(obj, (list, typing.List, tuple, typing.Tuple)):
-        return type(obj)(build_skeleton(item) for item in obj)
-    if isinstance(obj, (set, typing.Set)):
-        return set()  # Always return a regular set for the skeleton
-    return None  # Should never reach here with registered types
-
-
-Multi.build_skeleton = staticmethod(build_skeleton)
-
-
-@functools.singledispatch
-def set_nested(obj: Any, path: list, value: Any) -> Any:
-    raise TypeError("Object is not a supported container type")
-
-@register_all((dict, list, Multi))
-def _(obj: Any, path: list, value: Any) -> Any:
-    for key, _ in reversed(path):
-        obj[key] = value
-        value = obj
-    return value
-
-@register_all((tuple,))
-def _(obj: Any, path: list, value: Any) -> Any:
-    obj = list(obj)
-    for key, _ in reversed(path):
-        obj[key] = value
-        value = obj
-    return obj
-
-
-Multi.set_nested = staticmethod(set_nested)
-
-
-class MetaMeta(type):
-    """
-    Necessary for making the compression trick that Meta uses work
-    """
-    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: Dict[str, Any]) -> type:
-        def create_method(method_name: str) -> Callable:
-            def method(self, other: str) -> Callable:
-                op_name = method_name.strip('_')
-                if method_name.startswith('__r'):
-                    repr_string = f"λe.{op_name}({other!r}, e)"
-                else:
-                    repr_string = f"λe.{op_name}(e, {other!r})"
-
-                func = lambda obj: getattr(obj, method_name)(other)
-                func.__repr__, func.__qualname__, func.__name__ = (lambda: repr_string), repr_string, repr_string
-                func.__str__ = lambda: repr_string
-                return func
-            return method
-
-        for method in ['add', 'sub', 'mul', 'truediv', 'floordiv', 'mod', 'pow',
-                        'lshift', 'rshift', 'and', 'xor', 'or', 'lt', 'le', 'eq',
-                        'ne', 'gt', 'ge']:
-            for prefix in ['__', '__r']:
-                method_name = f'{prefix}{method}__'
-                attrs[method_name] = create_method(method_name)
-        return super().__new__(cls, name, bases, attrs)
-
-
-class Meta(metaclass=MetaMeta):
-    """
-    Treated as blanks by wrapped functions -- useful for partial evaluation
-    """
-    def __init__(self) -> None:
-        self.is_meta = True
-
-    def __repr__(self) -> str:
-        return "<Meta object>"
-
-    def __getitem__(self, key: Any) -> Any:
-        return lambda obj: obj[key]
-
-    def __contains__(self, key: Any) -> Any:
-        return lambda obj: key in obj
-
-    def __instancecheck__(self, instance: Any) -> bool:
-        return isinstance(instance, Meta)
-
-    def __subclasscheck__(self, subclass: Any) -> bool:
-        return issubclass(subclass, Meta)
-
-    def __getattribute__(self, name: str) -> Any:
-        if name == '_is_meta':
-            return True
-        if name.startswith('__') and name.endswith('__'):
-            if name in {'__getattribute__', '__instancecheck__', '__subclasscheck__'}:
-                return getattr(self, name)
-            if name in {'__mro__', '__class__', '__init__'}:
-                return getattr(type(self), name)
-
-            def method(*args, **kwargs) -> Callable:
-                repr_string = f"λe.{name[2:-2]}(e, {', '.join(map(repr, args))})"
-                func = lambda obj: getattr(obj, name)(*args, **kwargs)
-                func.__repr__, func.__name__, func.__qualname__ = (lambda: repr_string), repr_string, repr_string
-                return func
-            return method
-
-        def attr_func(obj) -> Any:
-            return getattr(obj, name)
-        attr_func.__repr__, attr_func.__qualname__, attr_func.__name__ = (lambda: f"λe.{name}(e)"), f"λe.{name}(e)", f"λe.{name}(e)"
-        return attr_func
-
-    @classmethod
-    def is_meta(cls, obj) -> bool:
-        """Check if an object is a Meta instance without using isinstance."""
-        return hasattr(obj, 'is_meta') and obj.is_meta
-
-
-this = Meta()
 
 class Fun:
     """
@@ -801,8 +572,20 @@ class Fun:
             chaining: 3 >> f >> g is equivalent to g(f(3))
     """
     # function wrapper for functional programming-style syntactic sugar
-    def __init__(self, func, form = None, args = None, **kwargs) -> None:
-        # args is to be appended to the arguments of a call
+    def __init__(self,
+                 func: str | Func,
+                 form: tuple[str, str] | None = None,
+                 args: list[Any] | None = None,
+                 **kwargs: Any
+        ) -> None:
+        """
+        Initialize a Fun object.
+
+        :param func: A function or a string representation of a function to be wrapped.
+        :param form: An optional tuple containing signature and call order for function transformation.
+        :param args: An optional list of arguments to be appended to the function call.
+        :param kwargs: Additional keyword arguments to be used in the function call.
+        """
         if args is None:
             args = []
         if isinstance(func, str):
@@ -810,9 +593,9 @@ class Fun:
             for token in re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', func):
                 if token not in tokens and token not in dir(builtins) and all(y + '.' + token not in func for y in dir(builtins)):
                     tokens.append(token)
-            func = eval('lambda ' + ', '.join(tokens) + ': ' + func)
+            func: Func = eval('lambda ' + ', '.join(tokens) + ': ' + func)
         i = 0
-        self.func = func
+        self.func: Func = func
         recursion_limit = 10
         while isinstance(func, Fun):
             # the function being wrapped should not be a wrapper itself, but maybe there'll be a point to re-wrapping
@@ -825,21 +608,16 @@ class Fun:
         self.args = args
         if form is not None:
             self.func = Fun.form(form[0], form[1], func)
-        self.parameters = inspect.signature(self.func).parameters
-        self.arguments = list(self.parameters.keys())
+        self.arguments = list(inspect.signature(self.func).parameters.keys())
 
     def __name__(self) -> str:
-        return self.func.__name__
+        return str(self.func.__name__)
 
     def __doc__(self) -> str:
-        return self.func.__doc__
+        return str(self.func.__doc__)
 
     def __call__(self, *args, **kwargs) -> Any:
         """
-        1. Replace Meta objects with placeholders
-        2. Fill in placeholders with arguments
-        3. Call the function
-        If a Multi object is encountered, distribute over the elements of the Multi object
         :param args: Positional arguments
         :param kwargs: Keyword arguments
         :returns: The result of the function call
@@ -849,55 +627,21 @@ class Fun:
         args = list(args) + self.args
         kwargs |= self.kwargs
 
-        # Check for Multi objects and handle them asynchronously
-        multi_args = []
-        for arg in itertools.chain(args, kwargs.values()):
-            multi_args.extend(path for path, value in Multi.walk(arg) if isinstance(value, Multi))
-
-        if multi_args:
-            skeleton_args = Multi.build_skeleton(args)
-            skeleton_kwargs = Multi.build_skeleton(kwargs)
-
-            multi_values = [Multi.set_nested(args if isinstance(path[-1][1], (list, tuple, List, Tuple)) else kwargs, path[:-1], value) for path, value in multi_args]
-
-            combinations = list(itertools.product(*multi_values))
-
-            with ThreadPoolExecutor() as executor:
-                futures = []
-                for combo in combinations:
-                    current_args = Multi.set_nested(skeleton_args, [], args)
-                    current_kwargs = Multi.set_nested(skeleton_kwargs, [], kwargs)
-                    for (path, _), value in zip(multi_args, combo):
-                        if isinstance(path[-1][1], (list, tuple, List, Tuple)):
-                            Multi.set_nested(current_args, path, value)
-                        else:
-                            Multi.set_nested(current_kwargs, path, value)
-                    futures.append(executor.submit(self.func, *current_args, **current_kwargs))
-
-                results = [future.result() for future in futures]
-
-            return Multi(*results)
-
-        # partial evaluation code
         if (k := len(args) + len(kwargs)) < (n := len(self.arguments)):
             selfargs = list(self.arguments)
-            a = selfargs[len(args):]
-            first_unprovided = min(selfargs.index(y) for y in a if y not in kwargs)
-            kw_in_first = {k: v for (k, v) in kwargs.items() if k in selfargs[:first_unprovided]}
-            kw_in_second = {k: v for (k, v) in kwargs.items() if k not in selfargs[:first_unprovided]}
-            call = ''.join(map(str, range(n)))
-            sig = call.replace(str(k), ' ' + str(k))
-            return Fun(Fun.form(sig, call, self.func)(*args, **kw_in_first), **kw_in_second)
-        # if any(Meta.is_meta(x) for x in args):   # Need to replace Meta with Symbol
-        #     indices = [i for i, x in enumerate(args) if Meta.is_meta(x)]
-        #     args = [x for x in args if not Meta.is_meta(x)]
+            filled_by_args = {selfargs[i]: v for i, v in enumerate(args)}
+            a = [x for x in selfargs if x not in filled_by_args and x not in kwargs]  # unprovided arguments
 
-        #     def helper(args=args, indices=indices, *args2) -> Any:
-        #         args = args[:]
-        #         for num, idx in enumerate(sorted(indices)):
-        #             args.insert(idx, args2[num])
-        #         return args
-        #     return Fun(lambda *args2: self.func(helper(args, indices, *args2)))
+            def newfun(*args2, **kwargs2) -> Any:
+                if len(args2) > len(a):
+                    msg = f"Too many arguments provided: {args2}"
+                    raise ValueError(msg)
+                filled_by_args2 = {a[i]: args2[i] for i in range(len(args2))}
+                return self.func(**(filled_by_args | filled_by_args2 | kwargs | kwargs2))
+            f = Fun(newfun)
+            f.arguments = a
+            return f
+
         rv = self.func(*args, **kwargs)
         if callable(rv):
             return Fun(rv)
@@ -905,6 +649,44 @@ class Fun:
 
     def __setitem__(self, name: str, value: Any) -> None:
         self.kwargs[name] = value
+
+    def __class_getitem__(cls, name: Any) -> Any:
+        # Replicate Callable.__getitem__, with a few extra cases
+        # since product type domains are supported by Callable (Callable[[T, U], V] is a T x U -> V)
+        #   we'll use lists to represent product types and tuples to represent function types
+        #   so Fun[T, [U, V]] is a T -> U x V = Callable[T, tuple[U, V]]
+        #      Fun[T, (U, V)] is a T -> (U -> V) = Callable[T, Callable[U, V]]
+        #      Fun[[T, U], V] is a T x U -> V = Callable[[T, U], V]
+        #      Fun[(T, U), V] is a (T -> U) -> V = Callable[Callable[T, U], V]
+        # this doesn't handle nested product and function types too well yet
+        #   e.g. Fun[ [T, [T, (U, T)], (U, V)], [T, (U, V)] ] should be a T x (T x (U -> T)) x (U -> V) -> (T x (U -> V))
+        if is_typelike(name):
+            return Callable[..., name]  # Fun[T] is a function with output type T
+
+        def is_type_tree(T: Typelike | list | tuple) -> bool:
+            if isinstance(T, (list, tuple)):
+                return all(is_type_tree(x) for x in T)
+            return is_typelike(T)
+
+        if isinstance(name, tuple) and all(is_type_tree(x) for x in name):
+            if len(name) == 0:
+                return Callable[..., Any]  # not clear why you would do this, but it's allowed
+            if len(name) == 1:
+                return Callable[..., name[0]]
+            if len(name) > 2:
+                return Callable[[name[:-1]], name[-1]]
+            # length is exactly 2
+            dom, cod = name
+            if isinstance(dom, tuple):
+                dom = Fun[dom]
+            if isinstance(cod, tuple):
+                cod = Fun[cod]
+            if isinstance(cod, list):
+                cod = tuple[tuple(cod)]
+            if isinstance(dom, list):
+                return Callable[[*dom], cod]
+            return Callable[[dom], cod]
+        return None
 
     def __getitem__(self, name: Any) -> Any:
         # if a is a string, f[a] returns value of local arg a
@@ -920,13 +702,18 @@ class Fun:
             self.kwargs.__delitem__(name)
 
     @classmethod
-    def check(cls: Any) -> bool:
+    def __preempt__(cls, fn: Callable, arguments: dict) -> tuple[Callable, dict]:
+        class_args, remaining_args = cls.__sieve__(arguments)
+        return lambda **args: fn( **({k: v.func for k, v in class_args.items()} | args) ), remaining_args
+
+    @staticmethod
+    def check(obj: Any) -> bool:
         """
         Checks if the given object is a function or subclass of Fun.
-        :param cls: The class to check.
-        :returns: True if the class is a function, False otherwise.
+        :param obj: The object to check.
+        :returns: True if the object is a function, False otherwise.
         """
-        return isinstance(cls, (Fun, Fun))
+        return isinstance(obj, (Callable, Fun))
 
     def __mul__(self, other) -> Fun:
         """
@@ -935,9 +722,11 @@ class Fun:
         :param other: The function to compose with the current function.
         :returns: A new Fun object representing the composition.
         """
-        def _(*args, **kwargs) -> Any:
+        def composed(*args, **kwargs) -> Any:
             return self(other(*args, **kwargs))
-        return Fun(_)
+        ret = Fun(composed)
+        ret.arguments = other.arguments
+        return ret
 
     def __rmul__(self, other) -> Fun:
         """
@@ -945,9 +734,11 @@ class Fun:
         :param other: The function to compose with the current function.
         :returns: A new Fun object representing the composition.
         """
-        def _(*args, **kwargs) -> Any:
+        def composed(*args, **kwargs) -> Any:
             return other(self(*args, **kwargs))
-        return Fun(_)
+        ret = Fun(composed)
+        ret.arguments = self.arguments
+        return ret
 
     def __add__(self, other) -> Fun:
         """
@@ -958,24 +749,28 @@ class Fun:
         :param other: The function to compose with the current function.
         :returns: A new Fun object representing the horizontal composition.
         """
-        def _(*a) -> Any:
+        def added(*a) -> Any:
+            val = self(a[0])
+            combiner = lambda v, w: (*v, w) if isinstance(v, tuple) else (v, w)
+            # so (f + g + h)(x) = (f(x), g(x), h(x)) rather than ((f(x), g(x)), h(x))
+            # has to be asymmetric because addition is evaluated left-to-right
             if len(a) != 1:
-                return (self(a[0]), other(a[1]))
-            # if type(a[0]) == tuple and len(a[0]) != 1:
-            # return (self(a[0][0]), other(a[0][1]))
-            return (self(a[0]), other(a[0]))
-        return Fun(_)
+                return combiner(val, other(a[1]))
+            return combiner(val, other(a[0]))
+        ret = Fun(added)
+        ret.arguments = self.arguments
+        return ret
 
-    def __matmul__(self, other) -> Fun:
+    def __matmul__(self, other: Iterable) -> Iterable:
         """
         Map a function over a list: f @ L = [f(x) for x in L]
         Mnemonic: f 'at' each element of L
         :param other: The list to map the function over.
         :returns: A new list with the function applied to each element.
         """
-        def _(iterable) -> Any:
+        def composed(iterable: Iterable) -> Iterable:
             return [self.func(x) for x in iterable]
-        return Fun(_)
+        return Fun(composed)(other)
 
     def __getattr__(self, arg) -> Any:
         """
@@ -987,30 +782,39 @@ class Fun:
             return self * arg
         return object.__getattribute__(self, arg)
 
-    def __truediv__(self, other) -> Optional[Callable]:
+    def __truediv__(self, other) -> Callable | None:
         """
-        f / g returns f(x) if that works and isn't None, else (g(x) if g callable else g)
+        Function: f / g returns f(x) if that works and isn't None, else (g(x) if g callable else g)
         Mnemonic: f 'else' g
+        If you want to return a callable g verbatim, use f / const(g)
         :param other: The fallback function or value.
         :returns: A new Fun object representing the conditional application.
         """
-        def _(*args, **kwargs) -> Any:
+        def newfun(*args, **kwargs) -> Any:
             try:
-                return self.func(*args, **kwargs)
+                res = self.func(*args, **kwargs)
+                assert res is not None
+                return res
             except Exception:
                 try:
                     return (other.func(*args, **kwargs) if isinstance(other, Fun) else other(*args, **kwargs))
                 except Exception:
                     return None
-        return _
+        f = Fun(newfun)
+        f.arguments = self.arguments
+        return f
 
     def __pow__(self, n: int) -> Fun:
         """
-        Repeated application of a function: f ** n = f(f(...(f(x))...)) for n iterations
+        Function: repeated application; f ** n = f(f(...(f(x))...)) for n iterations
         Mnemonic: (standard mathematical notation, but with Python's power notation instead of superscript notation f^n)
         :param n: The number of times to apply the function.
         :returns: A new Fun object representing the repeated application.
         """
+        if n == 0:
+            return Fun(lambda x: x)
+        if n < 0:
+            raise ValueError("Raising a function to a negative power is not supported")
         n_recurse_at = 3
         if n < n_recurse_at:
             return [Fun(lambda x: x), self, self * self][n]
@@ -1018,8 +822,8 @@ class Fun:
 
     def __rrshift__(self, x) -> Any:
         """
-        3 >> f >> g is equivalent to g(f(3))
-        f >> g alone is equivalent to g compose f (sometimes written f;g)
+        Function: 3 >> f >> g is equivalent to g(f(3))
+            f >> g alone is equivalent to g compose f (sometimes written f;g)
         Mnemonic: feeding inputs into function pipelines
         :param x: The value to apply the function to.
         :returns: The result of applying the function to the value.
@@ -1027,7 +831,7 @@ class Fun:
         return self * x if isinstance(x, Fun) else self(x)
 
     @staticmethod
-    def form(sig_order: str, call_order: str, fn: Optional[Callable] = None, return_former: bool = False, wrap: bool = False) -> Fun:
+    def form(sig_order: str, call_order: str, fn: Callable | None = None, return_former: bool = False, wrap: bool = False) -> Fun:
         """
         Utility for variadic combinator constructor with generalized notation.
         :param sig_order: The order of the arguments in the function signature.
@@ -1063,38 +867,56 @@ class Fun:
             - converge = form('0 1 2 3', '0(1(3))(2(3))', id): (b -> c -> d) -> (a -> b) -> (a -> c) -> a -> d
             - join = form('0 1', '0(1)(1)', id): (a -> a -> b) -> a -> b
         """
+        rx_comma = r'[,;]'
+        rx_space = r' +'
+        Gr = lambda *rxs: r'(' + (r'|'.join(rxs) if len(rxs) > 1 else rxs[0]) + r')'
+        rx_digit = r'[0-9]'
+        rx_tchar = r'[a-zA-Z0-9_]'
+        rx_non_tchar = r'[^a-zA-Z0-9_]'
         while isinstance(fn, Fun):
             fn = fn.func
-        sig, call = [re.sub(r'([,;]) +', r'\1', y) for y in [sig_order, call_order]]  # remove extraneous spaces from word-notation inputs
-        word_notation = bool(re.findall(r'[,;]', sig))
-        tokens = re.findall('[a-zA-Z0-9_]' + '+' * word_notation, sig)  # get tokens
+        sig, call = [re.sub(Gr(rx_comma) + rx_space, r'\1', y) for y in [sig_order, call_order]]
+        # remove extraneous spaces from word-notation inputs
+        word_notation = bool(re.findall(rx_comma, sig))
+        tokens = re.findall(rx_tchar + '+' * word_notation, sig)
+        # get tokens
         initial_params = sorted(set(tokens), key=tokens.index)
 
-        for idx, tok in enumerate(initial_params):  # convert word-notation to number-notation
+        for idx, tok in enumerate(initial_params):
+            # convert word-notation to number-notation
             sig = sig.replace(tok, str(idx))
             call = call.replace(tok, str(idx))
+
         for delim_old, delim_new in [(',', ''), (';', ' ')]:
             sig = re.sub(delim_old, delim_new, sig)
             call = re.sub(delim_old, delim_new, call)
 
-        indices = [int(i) for i in re.findall(r"[0-9]", call)]  # find all indices used in call...
+        indices = [int(i) for i in re.findall(rx_digit, call)]
+        # find all indices used in call...
         call += " "
-        for x in range(max(indices) + 1):  # and append all unused indices to its end (so 03 becomes 03 12)
+        for x in range(max(indices) + 1):
+            # and append all unused indices to its end (so 03 becomes 03 12)
             if x not in indices:
                 call += str(x)
-        call = "_ORIG(" + call.strip().replace(" ", ") (") + ")"  # _ORIG(03) (12)
-        sig = "lambda " + ": lambda ".join(sig.split(" ")) + ": "  # "012 3" becomes "lambda 012: lambda 3: "
+        call = "_ORIG(" + call.strip().replace(" ", ") (") + ")"
+        # _ORIG(03) (12)
+        sig = "lambda " + ": lambda ".join(sig.split(" ")) + ": "
+        # "012 3" becomes "lambda 012: lambda 3: "
         for _ in range(len(call) + len(sig)):
-            call, sig = [re.sub(r"([0-9]|\))([0-9])", "\\1, \\2", x) for x in [call, sig]]  # "lambda 0, 1, 2: lambda 3: " and "_ORIG(0, 3) (1, 2)"
-        sig += call.replace(" ", "")  # now the new nested lambda is fully formed, but with numerical indices
+            call, sig = [re.sub(Gr(rx_digit, r'\)') + Gr(rx_digit), r"\1, \2", x) for x in [call, sig]]
+            # "lambda 0, 1, 2: lambda 3: " and "_ORIG(0, 3) (1, 2)"
+        sig += call.replace(" ", "")
+        # now the new nested lambda is fully formed, but with numerical indices
         params_list = initial_params if fn is None else list(inspect.signature(fn).parameters.keys())
         for i, j in enumerate(params_list):
             if j[0] in '0123456789_':
                 j = 'x' + j
-            sig = sig.replace(str(i), j)  # replace numerical indices with valid tokens
+            sig = sig.replace(str(i), j)
+            # replace numerical indices with valid tokens
         for _, j in enumerate(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']):
-            if ' ' + j in sig:  # using a function with fewer params than indices in sig might leave 'lambda 1' etc. in sig
-                sig = re.sub(r'([^a-zA-Z0-9])(\d)', r'\1x\2', sig)
+            if ' ' + j in sig:
+                # using a function with fewer params than indices in sig might leave 'lambda 1' etc. in sig
+                sig = re.sub(Gr(rx_non_tchar) + Gr(rx_digit), r'\1x\2', sig)
         former = eval("lambda _ORIG: " + sig)
         # former = lambda _ORIG: lambda x0, x1, x2: lambda x3: _ORIG(x0, x3)(x1, x2)
         # so if g = former(f), then g(a, b, c)(d) = f(a, d)(b, c)
@@ -1104,27 +926,14 @@ class Fun:
             return Fun(former(fn))
         return former(fn)
 
-# e.g. if Sub = Curry_01_2(re.sub)
-# then Sub('a','b')('yam') = 'ybm'
-# so you can chain the monadic Sub(s, t) functions together as
-# in_string >> Sub(s1, t1) >> Sub(s2, t2) >> ... >> Sub(sn, tn)
-# for n in range(2, 4):
-# 	s = ''.join(str(i) for i in range(n))
-# 	col = lambda L: ''.join(str(i) for i in L)
-# 	for m in range(n-1):
-# 		for p in itertools.permutations(range(n), n):
-# 			invp = tuple(p.index(i) for i in range(n))
-# 			#print('Curry_'+col(p[:m+1])+'_'+col(p[m+1:])+' = Fun.form("'+s[:m+1]+' '+s[m+1:]+'", "'+col(invp[:m+1]) + col(invp[m+1:])+'", id)')
-# 			vars()['Curry_'+col(p[:m+1])+'_'+col(p[m+1:])] = Fun.form(s[:m+1]+' '+s[m+1:], col(invp[:m+1]) + col(invp[m+1:]))
-
-class Dict(dict):
+class Dict(dict[KT, VT], Generic[KT, VT]):
     """
     Dictionary wrapper that improves functionality and integration with Fun
     Allows for attribute-like access to keys, e.g. D.x is equivalent to D['x'] (as in JS and Lua)
     Operations:
         D[X: Callable] = D.filter(X)
         D[X: Tuple] = D[X[0]][X[1:]]
-        D[X: List] = [D[x] for x in X]
+        D[X: list] = [D[x] for x in X]
         D[X: other] = D.get(X, None)
         D + E = D | E = {k: E.get(k, D.get(k)) for k in set(E.keys()+D.keys())}
         D & E = {k: E.get(k, D.get(k)) for k in D}
@@ -1133,10 +942,12 @@ class Dict(dict):
         D * f = {f(k): v for k, v in D.items()}
         f * D = {k: f(v) for k, v in D.items()}
     """
-    def __init__(self, items = {}, **kwargs) -> None:
-        items |= kwargs
-        for k, v in items.items():
+    def __init__(self, items: dict[KT, VT] = {}, **kwargs: VT) -> None:
+        if not isinstance(items, dict):
+            items = dict(items)
+        for k, v in itertools.chain(items.items(), kwargs.items()):
             if isinstance(v, (list, tuple, dict)) and not isinstance(v, (List, Tuple, Dict)):
+                # recursively convert nested containers, for chained attributes and such
                 items[k] = ({dict: Dict, tuple: Tuple, list: List}[type(v)])(v)
         super(Dict, self).__init__(items)
         self.__dict__ = items
@@ -1148,13 +959,12 @@ class Dict(dict):
             return core_schema.dict_schema(keys_schema=handler(key_type), values_schema=handler(value_type))
         return core_schema.dict_schema()
 
-    @classmethod
-    def __getitem__(cls, item: Any = None) -> Any:
-        if item is None:
-            return typing.Dict[cls]
-        return typing.Dict[cls, item]
+    def __class_getitem__(cls, item) -> Any:
+        # Replicate typing annotations for Dict
+        return dict[item]
 
     def __getitem__(self, key: Any) -> Any:
+        # ordinary element retrieval: like dict.__getitem__, but fails gracefully
         if isinstance(key, list):
             return [self[k] for k in key]
         if isinstance(key, tuple):
@@ -1165,7 +975,7 @@ class Dict(dict):
             new_obj = Dict()
             for k, v in key.items():
                 keyHashable, keyContainer = isinstance(v, Hashable), isinstance(v, (Dict, Tuple))
-                selfHashable, selfContainer = isinstance(self[k], Hashable), isinstance(self[k], (Dict, Tuple))
+                _, selfContainer = isinstance(self[k], Hashable), isinstance(self[k], (Dict, Tuple))
                 if keyHashable and k in self:
                     new_obj[v] = self[k]
                 elif k in self:
@@ -1177,16 +987,17 @@ class Dict(dict):
             return super(Dict, self)[key]
         return super(Dict, self).get(key, None)
 
-    @classmethod
-    def check(cls) -> bool:
+    @staticmethod
+    def check(obj: Any) -> bool:
         """
         Checks if the given object is a Dict or subclass of Dict.
-        :param cls: The object to check.
+        :param obj: The object to check.
         :returns: True if the object is a Dict, False otherwise.
         """
-        return (isinstance(cls, (Dict, dict)))
+        return (isinstance(obj, (Dict, dict)))
 
-    def filter(self, predicate: Callable[..., bool]) -> Dict:  # only keeps k such that P(k, self[k])
+    def filter(self, predicate: Callable[..., bool] = lambda x: bool(x)) -> dict[KT, VT]:  # noqa: PLW0108
+        # only keeps k such that P(k, self[k])
         """
         Filters the dictionary based on a predicate function. If the predicate is unary, it filters based on keys. If binary, it filters based on both keys and values.
         :param predicate: The predicate function to filter the dictionary.
@@ -1199,23 +1010,33 @@ class Dict(dict):
             return Dict({k: v for k, v in self.items() if predicate(k)})
         return Dict({k: v for k, v in self.items() if predicate(k, v)})
 
-    def map(self, f: F) -> Dict:  # applies f to each value in self
+    def valuefilter(self, predicate: Callable[..., bool] = lambda x: bool(x)) -> dict[KT, VT]:  # noqa: PLW0108
+        # only keeps k such that P(self[k])
+        return self.filter(lambda k, v: predicate(v))
+
+    def map(self, *fn) -> dict:  # applies f to each value in self
         """
         Applies a function to each value in the dictionary.
-        :param f: The function to apply to the values.
+        :param fn: The function to apply to the values. If multiple functions are provided, they are applied in sequence.
         :returns: A new dictionary with the values transformed.
         """
-        return Dict({k: f(v) for k, v in self.items()})
+        mapped = self
+        for f in fn:
+            mapped = Dict({k: f(v) for k, v in mapped.items()})
+        return mapped
 
-    def mapKeys(self, f: F) -> Dict:  # applies f to each key in self
+    def mapKeys(self, *fn) -> dict:  # applies f to each key in self
         """
         Applies a function to each key in the dictionary.
-        :param f: The function to apply to the keys.
+        :param fn: The function to apply to the keys. If multiple functions are provided, they are applied in sequence.
         :returns: A new dictionary with the keys transformed.
         """
-        return Dict({f(k): v for k, v in self.items()})
+        mapped = self
+        for f in fn:
+            mapped = Dict({f(k): v for k, v in mapped.items()})
+        return mapped
 
-    def strip(self, obj: Any = None) -> Dict:  # removes all keys that map to None
+    def strip(self, obj: Any = None) -> dict:  # removes all keys that map to None
         """
         Removes all keys that map to a given object from the dictionary.
         :param obj: The object to remove as a dictionary value. By default, None.
@@ -1257,20 +1078,41 @@ class Dict(dict):
         """
         return key in self
 
+    def keysort(self, key: Callable[[KT], Any] = lambda x: x, reverse: bool = False) -> dict:
+        """
+        Sorts the dictionary by keys using the given key function.
+        :param key: The key function to use for sorting.
+        :param reverse: Whether to sort in reverse order.
+        :returns: A new dictionary with the items sorted by keys.
+        """
+        return Dict(sorted(self.items(), key=lambda x: key(x[0]), reverse=reverse))
+
+    def valsort(self, key: Callable[[VT], Any] = lambda x: x, reverse: bool = False) -> dict:
+        """
+        Sorts the dictionary by values using the given key function.
+        :param key: The key function to use for sorting.
+        :param reverse: Whether to sort in reverse order.
+        :returns: A new dictionary with the items sorted by values.
+        """
+        return Dict(sorted(self.items(), key=lambda x: key(x[1]), reverse=reverse))
+
+    def json(self) -> str:
+        return json.dumps(self)
+
     # general idea being: f * D applies f to keys, D * f applies f to values
-    def __mul__(self, f) -> Dict:
+    def __mul__(self, f) -> dict:
         return self.map(f)
 
-    def __rmul__(self, f) -> Dict:
+    def __rmul__(self, f) -> dict:
         return self.mapKeys(f)
 
     # D - E removes all keys in E from D, whether E is a list or a dict; if E is neither, D - E is just a safe delete
-    def __sub__(self, minor) -> Dict:
+    def __sub__(self, minor) -> dict:
         if isinstance(minor, (list, List, tuple, Tuple, dict, Dict)):
             return Dict({k: v for k, v in self.items() if k not in minor})
         return Dict({k: v for k, v in self.items() if k != minor})
 
-    def __rsub__(self, major) -> Dict:
+    def __rsub__(self, major) -> dict:
         if not isinstance(major, (dict, Dict)):
             raise TypeError("Can't subtract a dictionary from a non-dictionary")
         return Dict({k: v for k, v in major.items() if k not in self})
@@ -1280,32 +1122,32 @@ class Dict(dict):
         if key in self:
             super(Dict, self).__delitem__(key)
 
-    def __add__(self, other) -> Dict:
+    def __add__(self, other) -> dict:
         # D + E = D | E = {k: E.get(k, D.get(k)) for k in set(E.keys()+D.keys())}
         return Dict(self.__dict__ | other)
 
-    def __radd__(self, other) -> Dict:
+    def __radd__(self, other) -> dict:
         return Dict(other | self.__dict__)
 
     # D | E is the usual unrestricted write operation
-    def __or__(self, other) -> Dict:
+    def __or__(self, other) -> dict:
         return Dict(self.__dict__ | other)
 
-    def __ror__(self, other) -> Dict:
+    def __ror__(self, other) -> dict:
         return Dict(other | self.__dict__)
 
     # D & E is a restricted write operation: imprints elements of E onto elements of D but doesn't add elements not in D
-    def __and__(self, other) -> Dict:
+    def __and__(self, other) -> dict:
         return Dict({k: (other[k] if k in other else self[k]) for k in self})
 
-    def __rand__(self, other) -> Dict:
+    def __rand__(self, other) -> dict:
         return Dict({k: (self[k] if k in self else other[k]) for k in other})
 
     # D ^ E is the usual exclusive or, consisting of all keys in one dictionary but not the other (making it symmetric)
-    def __xor__(self, other) -> Dict:
+    def __xor__(self, other) -> dict:
         return Dict({k: self[k] for k in self if k not in other} | {k: other[k] for k in other if k not in self})
 
-    def __rxor__(self, other) -> Dict:
+    def __rxor__(self, other) -> dict:
         return Dict({k: self[k] for k in self if k not in other} | {k: other[k] for k in other if k not in self})
 
     def keys(self) -> list:
@@ -1317,7 +1159,7 @@ class Dict(dict):
     def items(self) -> list:
         return list(super(Dict, self).items())
 
-class List(list):
+class List(list[T], Generic[T]):
     """
     Wrapper for lists
     """
@@ -1331,13 +1173,17 @@ class List(list):
                 iterable[i] = ({dict: Dict, tuple: Tuple, list: List}[type(v)])(v)
         super(List, self).__init__(iterable)
 
+    @property
+    def head(self) -> T:
+        if len(self) == 0:
+            raise ValueError('head of empty list')
+        return self[0]
+
+    @property
+    def tail(self) -> List:
+        return List(self[1:])
+
     def __getattr__(self, attr: str) -> Any:
-        if attr == 'head':
-            if len(self) == 0:
-                raise ValueError('head of empty list')
-            return self[0]
-        if attr == 'tail':
-            return List(self[1:])
         try:
             return getattr(list, attr)
         except AttributeError:
@@ -1353,13 +1199,21 @@ class List(list):
             return core_schema.list_schema(items_schema=handler(item_type))
         return core_schema.list_schema()
 
-    @classmethod
-    def __getitem__(cls, item = None) -> Any:
-        if item is None:
-            return typing.List[cls]
-        return typing.List[cls, item]
+    def __class_getitem__(cls, item) -> Any:
+        # Replicate typing annotations for List
+        return list[item]
 
     def __getitem__(self, idx) -> Any:
+        # ordinary element retrieval: like list.__getitem__, but with support for
+        #    - None: L[None] = L
+        #    - Tuple: L[T] treats T as a series of nested lookups (don't need to write L[(i, j, k)], since L[i, j, k] is equivalent)
+        #        - List([0, [1, [2, [3]]]])[1, 1, 1] = 3
+        #    - Callable: L[f] treats f as a predicate to filter L by
+        #        - List([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).filter(this % 2 == 0) = [0, 2, 4, 6, 8]
+        #    - list: L[L2] treats L2 as a list of indices to look up ('horizontal' indexing, as opposed to 'vertical' indexing with tuples)
+        #        - List([0, 1, 2, 3, 4, ':)', 5, 6, 7, 8, 9])[[1, 3, 5, 7]] = [1, 3, ':)', 6]
+        #    - str: L[s] treats L as a list of dictionaries to query
+        #        - List([{'a': 0, 'b': 1}, {'a': 2, 'b': 3}, {'a': 4, 'b': 5}])['a'] = [0, 2, 4]
         if idx is None:  # L[None] = L
             return self
         if isinstance(idx, tuple):  # L[T] treats T as a series of nested lookups
@@ -1371,43 +1225,61 @@ class List(list):
         if isinstance(idx, Callable):  # L[f] treats f as a predicate to filter L by
             return List([obj for obj in self if idx(obj)])
         if isinstance(idx, list):  # L[L2] treats L2 as a list of indices to look up
-            return List([obj[idx] for obj in self])
+            return List([self[i] for i in idx])
         if isinstance(idx, str):  # L[s] treats L as a list of dictionaries to query
+            if not isinstance(self[0], dict):
+                raise ValueError(f"Cannot index a list of non-dict objects with a string: {self}")
             return List([obj[idx] for obj in self])
         return super(List, self).__getitem__(idx)
 
-    @classmethod
-    def check(cls) -> bool:
+    def __getattribute__(self, attr: str) -> Any:
+        # attempts super(List, self).__getattribute__(attr) to get default behavior,
+        #   but if that fails, acts like __getitem__[attr] (for attribute-like access across a list of dictionaries)
+        try:
+            return super(List, self).__getattribute__(attr)
+        except AttributeError:
+            return self[attr]
+
+    @staticmethod
+    def check(obj: Any) -> bool:
         """
         Checks if the given object is a list or subclass of List.
-        :param cls: The object to check.
+        :param obj: The object to check.
         :returns: True if the object is a list, False otherwise.
         """
-        return isinstance(cls, (List, list))
+        return isinstance(obj, (List, list))
 
-    def map(self, f: F) -> List:
+    def map(self, *fn) -> List:
         """
         Applies a function to each element of the list.
-        :param f: The function to apply.
+        :param fn: The function to apply. If multiple functions are provided, they are applied in sequence.
         :returns: A new list with the function applied to each element.
         """
-        return List(list(map(f, self)))
+        mapped = self
+        for f in fn:
+            mapped = list(map(f, mapped))
+        return List(mapped)
 
-    def forEach(self, f: F) -> None:
+    def forEach(self, *fn) -> None:
         """
         Applies a function to each element of the list in place.
-        :param f: The function to apply to each element.
+        :param fn: The function to apply to each element. If multiple functions are provided, they are applied in sequence.
         """
         for i, x in enumerate(self):
-            self[i] = f(x)
+            for f in fn:
+                x = f(x)
+            self[i] = x
 
-    def filter(self, f: F) -> List:
+    def filter(self, *fn) -> List:
         """
         Filters the elements of the list based on the given predicate function. Returns a new List object containing the filtered elements.
-        :param f: The predicate function to filter the elements.
+        :param fn: The predicate function to filter the elements. If multiple functions are provided, they are applied in sequence.
         :returns: A new List object containing the filtered elements.
         """
-        return List(list(filter(f, self)))
+        filtered = self
+        for f in fn:
+            filtered = List(list(filter(f, filtered)))
+        return filtered
 
     def strip(self, obj: Any = None) -> List:  # removes obj from either end of the list
         """
@@ -1423,7 +1295,7 @@ class List(list):
         return L
 
     @staticmethod
-    def asyncMap(func: Fun, arr: List, workers: int = 32) -> List:
+    def async_map(func: Fun, arr: list, workers: int = 32) -> List:
         """
         Applies a function to each element of a list asynchronously using multiple workers.
         :param func: The function to apply to each element.
@@ -1434,7 +1306,22 @@ class List(list):
         with ThreadPoolExecutor(max_workers=workers) as executor:
             return List(executor.map(func, arr))
 
-class Tuple(list):
+    def json(self, save_as: str | None = None) -> str:
+        text = json.dumps(self)
+        if save_as is not None:
+            with open(save_as, 'w') as f:
+                f.write(text)
+        return text
+
+    def jsonl(self, save_as: str | None = None) -> str:
+        text = '\n'.join(json.dumps(item) for item in self)
+        if save_as is not None:
+            with open(save_as, 'w') as f:
+                f.write(text)
+        return text
+
+
+class Tuple(list[T], Generic[T]):
     """
     Tuple wrapper
     """
@@ -1464,11 +1351,8 @@ class Tuple(list):
             return core_schema.tuple_schema(items_schema=item_schemas)
         return core_schema.tuple_schema()
 
-    @classmethod
-    def __getitem__(cls, item = None) -> Any:
-        if item is None:
-            return typing.Tuple[cls]
-        return typing.Tuple[cls, item]
+    def __class_getitem__(cls, item) -> Any:
+        return tuple[item]
 
     def __getitem__(self, idx) -> Any:
         if idx is None:
@@ -1481,27 +1365,38 @@ class Tuple(list):
             return self[idx[0]][Tuple(idx[1:])]
         return super(Tuple, self).__getitem__(idx)
 
-    @classmethod
-    def check(cls: Any) -> bool:
+    @staticmethod
+    def check(obj: Any) -> bool:
         """
         Checks if the given object is a tuple or subclass of Tuple.
-        :param cls: The object to check.
+        :param obj: The object to check.
         :returns: True if the object is a tuple, False otherwise.
         """
-        return isinstance(cls, (tuple, Tuple))
+        return isinstance(obj, (tuple, Tuple))
 
-    def map(self, f: F) -> Tuple:
+    def map(self, *fn) -> Tuple:
         """
         Applies a function to each element of the tuple.
-        :param f: The function to apply.
+        :param fn: The function to apply. If multiple functions are provided, they are applied in sequence.
         :returns: A new tuple with the function applied to each element.
         """
-        return Tuple(list(map(f, self)))
+        mapped = self
+        for f in fn:
+            mapped = list(map(f, mapped))
+        return Tuple(mapped)
 
-    def filter(self, f) -> Tuple:
-        return Tuple(list(filter(f, self)))
+    def filter(self, *fn) -> Tuple:
+        """
+        Filters the elements of the tuple based on the given predicate function. Returns a new Tuple object containing the filtered elements.
+        :param fn: The predicate function to filter the elements. If multiple functions are provided, they are applied in sequence.
+        :returns: A new Tuple object containing the filtered elements.
+        """
+        filtered = self
+        for f in fn:
+            filtered = list(filter(f, filtered))
+        return Tuple(filtered)
 
-def super_func(func: F) -> F:
+def super_func(func: Func) -> Func:
     """
     Decorator that converts a function into a Fun object.
     :param func: The function to convert.
@@ -1523,7 +1418,7 @@ def non_super_func(func: Callable[[X], Y]) -> Callable[[X], Y]:  # for clarity
     return func
 
 @super_func
-def map(f: Callable[[X], Y], items: List[X]) -> List[Y]:
+def map(f: Callable[[X], Y], items: list[X]) -> list[Y]:
     """
     Applies a function to each item in a given list.
     :param f: The function to apply to each item.
@@ -1533,7 +1428,7 @@ def map(f: Callable[[X], Y], items: List[X]) -> List[Y]:
     return [f(i) for i in items]
 
 @super_func
-def filter(f: Callable[[T], bool], items: List[T]) -> List[T]:
+def filter(f: Callable[[T], bool], items: list[T]) -> list[T]:
     """
     Filters a list of items based on the predicate f.
     :param f: The predicate function to filter the items.
@@ -1552,13 +1447,13 @@ def id(x: T) -> T:
     return x
 
 @super_func
-def comp(*args) -> Fun:
+def comp(*args) -> Func:
     """
     Composes a series of functions.
     :param args: The functions to compose.
     :returns: A new function that is the composition of the input functions.
     """
-    def _(x) -> Fun:
+    def _(x) -> Callable:
         n_min_comp = 2
         if len(args) == n_min_comp:
             return args[0](args[1](x))
@@ -1566,7 +1461,7 @@ def comp(*args) -> Fun:
     return _
 
 # @super_func
-# def reduce(opn: Callable[[T, T], T], values: List[T], base: T) -> T:
+# def reduce(opn: Callable[[T, T], T], values: list[T], base: T) -> T:
 #     """
 #     Reduces a list of values using a binary operator.
 #     :param opn: The binary operator to use for reduction.
@@ -1580,12 +1475,12 @@ def comp(*args) -> Fun:
 #     return opn(values[0], reduce(opn, values[1:], base))
 
 @super_func
-def const(c: T, x: Any) -> T:
+def const(c: T, _: Any) -> T:
     """
     A function that discards its second input to return the first.
     Curried, const(c) is a constant function that returns c regardless of its input.
     :param c: The value to return.
-    :param x: The value to discard.
+    :param _: The value to discard.
     :returns: The value c.
     """
     return c
@@ -1613,16 +1508,6 @@ def sub(pattern: str, repl: str, string: str) -> str:
     return re.sub(pattern, repl, string)
 
 @super_func
-def join(sep: str, iterable: Iterable[str]) -> Any:
-    """
-    Concatenates all elements of an iterable with a separator between them.
-    :param sep: The separator string.
-    :param iterable: The iterable of strings to concatenate.
-    :returns: The concatenated string.
-    """
-    return sep.join(iterable)
-
-@super_func
 def _read(fp: str) -> str:
     """
     Reads the contents of a file.
@@ -1633,7 +1518,7 @@ def _read(fp: str) -> str:
         return f.read()
 
 @super_func
-def _readlines(fp: str) -> List:
+def _readlines(fp: str) -> list:
     """
     Reads the lines of a file.
     :param fp: The file path.
@@ -1645,7 +1530,7 @@ def _readlines(fp: str) -> List:
 read, readlines = _read, _readlines
 
 @super_func
-def nonempty(f: Fun, items: List) -> List:
+def nonempty(f: Fun, items: list) -> list:
     """
     Applies a function to each item in a list and filters out the empty results.
     :param f: The function to apply to each item.
@@ -1656,7 +1541,6 @@ def nonempty(f: Fun, items: List) -> List:
 
 @super_func
 def cmd(input: str) -> Any:
-    import subprocess
     results = subprocess.run(input, capture_output=True, check=False)
     return results.stdout.decode('utf-8')
 
@@ -1694,7 +1578,7 @@ def get_attr(obj: Any, attr: str) -> Any:
                     try:
                         value = _get_attr(item, [sub_attr])
                         result.append(value)
-                    except Exception as e:
+                    except Exception:
                         if not opt:
                             raise
                         result.append(None)

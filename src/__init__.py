@@ -5,7 +5,7 @@ Module dependencies:
         requires pydantic
     supertypes.py:
         depends on basetypes
-        imports builtins, functools, inspect, itertools, operator, logging
+        imports builtins, functools, inspect, itertools, json, logging, operator, subprocess
         requires pydantic_core
     table.py:
         depends on basetypes, supertypes

@@ -461,9 +461,9 @@ def join(X: Any, Y: Any) -> Any:
     if not cnx or not cny:
         # deal with non-containers
         return (type_annotation(X) if cnx else X) | (type_annotation(Y) if cny else Y)
-    if len(X) == 0 or len(Y) == 0:
+    if (isinstance(X, Container) and len(X) == 0) or (isinstance(Y, Container) and len(Y) == 0):
         # deal with empty containers
-        return (type(X) | Y) if len(X) == 0 else (X | type(Y))
+        return (type(X) | Y) if (isinstance(X, Container) and len(X) == 0) else (X | type(Y))
     # strategies for joining containers of the same type
     if isinstance(X, dict) and isinstance(Y, dict):
         keys = set(X) | set(Y)

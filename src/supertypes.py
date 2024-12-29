@@ -42,9 +42,11 @@ import itertools
 import json
 import logging
 import operator
+import subprocess
 from pydantic_core import core_schema
 from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError, as_completed
 
+from collections import defaultdict
 
 class SymbolBase(type):
     """Metaclass for Symbol that automatically creates operator methods."""
@@ -94,16 +96,26 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
         - if f(a, b, c) = a + b + c is pre-emptable and _x = Symbol('x'), then
             f(1, _x**2, 3) is a function sending x to 1 + x^2 + 3, so f(1, _x**2, 3)(5) = 1 + 5**2 + 3 = 29
     """
+    __defaults__: typing.ClassVar[dict[str, Any]] = {  # noqa: RUF012
+        'symbol': None,
+        'binds': [],
+        'defn': lambda s, kw: kw.get(s._symbol),
+        'printer': lambda *s: "[{}]".format(", ".join(s)),
+        'config': {}
+    }
+
     @overload
     def __init__(self, symbol: str) -> None: ...
 
+    @overload
+    def __init__(self, defn: Callable) -> None: ...
     @overload
     def __init__(self, binds: str | list[Symbol], defn: Callable[[Symbol[T], dict], T]) -> None: ...
 
     def __init__(self,
                  symbol: str | None = None,
                  binds: str | list[Symbol] = [],
-                 defn: Callable[[Symbol[T], dict], T] = lambda s, kw: kw.get(s._symbol),
+                 defn: Callable[[Symbol[T], dict], T] = None,
                  printer: Callable[[str | tuple[str, ...]], str] = lambda *s: "[{}]".format(", ".join(s)),
                  config: Options = {}
         ) -> None:
@@ -114,31 +126,68 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
         :param printer: Method of forming a string representation of the symbol from a string representation of its binds.
         :param config: Configuration options for the Symbol object.
         """
+        if defn is None:
+            no_defn = True
+            defn = Symbol.__defaults__['defn']
+        else:
+            no_defn = False
+        if callable(symbol):  # a function was passed to Symbol
+            symbol, defn = Symbol.__defaults__['symbol'], symbol
         if not isinstance(binds, (str, list)):
             raise TypeError("binds must be either a string or a list of Symbol objects")
+        if symbol == Symbol.__defaults__['symbol'] and binds == Symbol.__defaults__['binds']:
+            if no_defn:
+                # nothing given, so complain
+                raise ValueError("Can't have an anonymous Symbol with no binds")
+            # just a function given; if it has a name, we'll make that the symbol
+            # this allows Symbol to be used as a decorator for functions, which can be used for:
+            # - great good:  (sin**2 + 2*sin*cos + 1) = (x |-> sin(x)**2 + 2*sin(x)*cos(x) + 1)
+            # - or great evil: (map[0] + map[-1])(list) = (L |-> [L[0], L[-1]])
+            if defn.__name__:
+                self._symbol: str = defn.__name__
+                self._anonymous: bool = False
+                # get argument names and create a Symbol for each
+                self._binds: list[Symbol] = [Symbol(arg) for arg in inspect.signature(defn).parameters]
 
-        self._binds: list[Symbol] = binds
-        self._anonymous: bool = symbol is None
-        self._defn: Callable[[Arguments], T]
-        if self._anonymous:
-            self._symbol: str = f'a_{next(Symbol._indexer)}'
-            if len(self._binds) == 0:  # literally just called Symbol()
+                def _defn(kwargs: Arguments) -> T:
+                    try:
+                        return defn(**kwargs)
+                    except Exception as e:
+                        msg = f"Error evaluating {self._symbol}: {e!s}"
+                        raise ValueError(msg) from e
+                self._defn: Callable[[Arguments], T] = _defn
+                self._subs: list[Symbol] = self._binds
+                self._roots: set[str] = set.union(*[sub._roots for sub in self._subs], set())
+            else:
+                # Symbol called on a lambda, so throw (a_ notation is only way to bind it, despite being arbitrary)
                 raise ValueError("Can't have an anonymous Symbol with no binds")
         else:
-            self._symbol: str = symbol
+            self._anonymous: bool = symbol is None
+            if self._anonymous:
+                self._symbol: str = f'a_{next(Symbol._indexer)}'
+            else:
+                self._symbol: str = symbol
+            self._binds: list[Symbol] = binds
+
+            def _defn(kwargs: Arguments) -> T:
+                try:
+                    return defn(self, kwargs)
+                except Exception as e:
+                    msg = f"Error evaluating {self._symbol}: {e!s}"
+                    raise ValueError(msg) from e
+            self._defn: Callable[[Arguments], T] = _defn
+            self._subs: list[Symbol] = self._binds if self._anonymous or len(self._binds) > 1 else []
+            self._roots: set[str] = {self._symbol} if not self._anonymous else set.union(*[sub._roots for sub in self._subs], set())
+
         self._printer: Callable[[str | tuple[str, ...]], str] = printer
 
-        def _defn(kwargs: Arguments) -> T:
-            try:
-                return defn(self, kwargs)
-            except Exception as e:
-                msg = f"Error evaluating {self._symbol}: {e!s}"
-                raise ValueError(msg) from e
-        self._defn = _defn
         self._cfg = config
+        if self._cfg == Symbol.__defaults__['config']:
+            for sub in self._subs:
+                if sub._cfg != Symbol.__defaults__['config']:
+                    self._cfg = sub._cfg
+                    break
 
-        self._subs: list[Symbol] = self._binds if self._anonymous or len(self._binds) > 1 else []
-        self._roots: set[str] = {self._symbol} if not self._anonymous else set.union(*[sub._roots for sub in self._subs], set())
         self._arity: int = len(self._roots)
         self._router: dict[str, list[Symbol]] = {root: [] for root in self._roots}
         self._route_back: dict[str, list[Symbol]] = {root: [] for root in self._roots}
@@ -224,13 +273,12 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
         :return: Result of the evaluation.
         """
         try:
-            if len(self._roots) == 0:
-                return self._defn({})
             if len(args) + len(kwargs) > self._arity:
-                if not self._cfg('extra_kwargs', default=True):
+                if not self._config('extra_kwargs', default=True):
                     msg = f"Too many arguments: expected {self._arity}, got {len(args) + len(kwargs)}"
                     raise ValueError(msg)
-
+            if len(self._roots) == 0:
+                return self._defn({})
             if len(args) == self._arity == 1:
                 args, kwargs = [], {next(iter(self._roots)): args[0]}
             if args:
@@ -295,7 +343,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
                 return self._defn(kwargs)
             except Exception:
                 return None
-        return Symbol(binds=[self], defn=safe_eval)
+        sym = Symbol(binds=[self], defn=safe_eval)
+        sym._copy_config(self)
+        return sym
 
     def default(self, value: T) -> Symbol[T]:
         """
@@ -308,7 +358,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
                 return self._defn(kwargs)
             except Exception:
                 return value
-        return Symbol(binds=[self], defn=default_eval)
+        sym = Symbol(binds=[self], defn=default_eval)
+        sym._copy_config(self)
+        return sym
 
     def guard(self, predicate: Callable[[T], bool]) -> Symbol[T]:
         """
@@ -322,7 +374,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
                 msg = f"Guard failed for {self._symbol}"
                 raise ValueError(msg)
             return result
-        return Symbol(binds=[self], defn=guarded_eval)
+        sym = Symbol(binds=[self], defn=guarded_eval)
+        sym._copy_config(self)
+        return sym
 
     def tap(self, func: Callable[[T], Any]) -> Symbol[T]:
         """
@@ -334,7 +388,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
             result = self._defn(kwargs)
             func(result)
             return result
-        return Symbol(binds=[self], defn=tapped_eval)
+        sym = Symbol(binds=[self], defn=tapped_eval)
+        sym._copy_config(self)
+        return sym
 
     def _update_persistent(self, updates: dict[str, Any]) -> None:
         """
@@ -346,6 +402,10 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
             for parent in self._route_back.get(key, []):
                 parent._update_persistent({key: val})
 
+    def _copy_config(self, original: Symbol[T]) -> Symbol[T]:
+        self._cfg = original._cfg.copy()
+        return self
+
     def _copy(self, original: Symbol[T]) -> Symbol[T]:
         """
         Create a shallow copy of the Symbol object.
@@ -355,6 +415,7 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
         self._roots = original._roots.copy()
         self._router = original._router.copy()
         self._order = original._order.copy()
+        self._cfg = original._cfg.copy()
         return self
 
     def _total_copy(self, original: Symbol[T]) -> Symbol[T]:
@@ -382,7 +443,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
         def wrapped_getitem(_self, kwargs: Arguments) -> Any:
             return self._defn(kwargs)[key]
         new_printer = lambda s: f"{s}[{key}]"
-        return Symbol(binds=[self], defn=wrapped_getitem, printer=new_printer)
+        sym = Symbol(binds=[self], defn=wrapped_getitem, printer=new_printer)
+        sym._copy_config(self)
+        return sym
 
     def __getattr__(self, name: str) -> Symbol[Any] | Any:
         if name.startswith('_'):
@@ -395,7 +458,9 @@ class Symbol(Generic[T], Preemptive, metaclass=SymbolBase):
 
         def wrapped_getattr(_self, kwargs: Arguments) -> Any:
             return getattr(self._defn(kwargs), name)
-        return Symbol(binds=[self], defn=wrapped_getattr, printer=lambda s: f"{s}.{name}")
+        sym = Symbol(binds=[self], defn=wrapped_getattr, printer=lambda s: f"{s}.{name}")
+        sym._copy_config(self)
+        return sym
 
     def __str__(self) -> str:
         """Return a string representation of the Symbol."""
@@ -1228,7 +1293,8 @@ class List(list[T], Generic[T]):
             return List([self[i] for i in idx])
         if isinstance(idx, str):  # L[s] treats L as a list of dictionaries to query
             if not isinstance(self[0], dict):
-                raise ValueError(f"Cannot index a list of non-dict objects with a string: {self}")
+                msg = f"Cannot index a list of non-dict objects with a string: {self}"
+                raise TypeError(msg)
             return List([obj[idx] for obj in self])
         return super(List, self).__getitem__(idx)
 

@@ -581,14 +581,14 @@ class MetadataParsingError(Exception):
     """Custom exception for metadata parsing errors"""
     pass
 
-def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
+def parse_json_with_metadata(data: str | dict, strict: bool = True) -> dict:
     """
     Parses a JSON file with metadata-driven processing rules.
     The function:
     1. Reads metadata to identify the primary table and processing rules
     2. Applies alias replacements from metadata["aliases"]
     3. Applies defaults from metadata["defaults"] with dynamic substitution
-    :param file_path: Path to the JSON file
+    :param data: Path to the JSON file, or the JSON data itself.
     :param strict: If True, raises exceptions for validation errors. If False, logs warnings.
     :return: Dict containing the processed data
     :raises:
@@ -596,119 +596,117 @@ def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
         json.JSONDecodeError: For invalid JSON
         FileNotFoundError: When file doesn't exist
     """
-    def _build_alias_mappings(aliases_list: list[dict] | dict) -> dict[str, dict[str, str]]:
+    def _apply_aliases(data: list[dict] | dict, alias_obj: list[dict] | dict, last_key: str = "", silent: bool = True) -> Any:
         """
         Builds a mapping of aliases to canonical keys for each table.
-        :param aliases_list: List of alias definitions from metadata
+        :param data: The data to process
+        :param alias_obj: List of alias definitions from metadata
         :return: Dict mapping table names to {alias: canonical_key} mappings
         """
-        alias_mappings = {}
+        warning = logger.warning if not silent else lambda msg: None
+        if isinstance(data, list):
+            return [_apply_aliases(item, alias_obj, last_key + f"[{i}]", silent) for i, item in enumerate(data)]
 
-        if not isinstance(aliases_list, list):
-            logger.warning("aliases must be a list")
-            # return {}
-        if isinstance(aliases_list, dict):
-            aliases_list = [aliases_list]
+        if isinstance(alias_obj, list):
+            for alias_subobj in alias_obj:
+                data = _apply_aliases(data, alias_subobj, last_key, silent)
+            return data
 
-        for alias_obj in aliases_list:
-            if not isinstance(alias_obj, dict):
-                logger.warning(f"Invalid alias object: {alias_obj}")
+        if not isinstance(alias_obj, dict):
+            warning(f"Invalid alias object: {alias_obj}")
+            return data
+
+        if not isinstance(data, dict):
+            warning(f"Invalid data object: {data}")
+            return data
+
+        for k, v in alias_obj.items():
+            if isinstance(v, dict):  # {a: {b: ...}}
+                data[k] = _apply_aliases(data[k], v, last_key + f"[{k}]", silent)
                 continue
-
-            for tbl, mapping in alias_obj.items():
-
-                if tbl not in alias_mappings:
-                    alias_mappings[tbl] = {}
-                if not isinstance(mapping, dict):
-                    logger.warning(f"Invalid alias mapping for table {tbl}")
+            if isinstance(v, str):
+                v = [v]
+            if isinstance(v, list):
+                if len(v) == 0:
                     continue
-                for canonical_key, synonyms in mapping.items():
-                    if isinstance(synonyms, dict):
-                        alias_mappings[canonical_key] = alias_mappings.get(canonical_key, {}) | _build_alias_mappings([synonyms])
-                    if not isinstance(synonyms, list):
-                        logger.warning(f"Invalid synonyms for {canonical_key} in {tbl}")
-                        continue
-                    for syn in synonyms:
-                        if isinstance(syn, dict):
-                            alias_mappings[canonical_key] = alias_mappings.get(canonical_key, {}) | _build_alias_mappings([syn])
-                        if not isinstance(syn, str):
-                            logger.warning(f"Invalid synonym {syn} for {canonical_key}")
+                if isinstance(v[0], dict):  # {a: [{b: ...}, {c: ...}]}
+                    if k in data:
+                        data[k] = _apply_aliases(data[k], v[0], last_key + f"[{k}]", silent)
+                    else:
+                        warning(f"Key {k} not found in data at {last_key}")
+                    continue
+                if isinstance(v[0], str):  # {a: [b, c]}
+                    syn_found = False
+                    for syn in v:
+                        if syn == k:
                             continue
-                        if isinstance(syn, str):
-                            alias_mappings[tbl][syn] = canonical_key
-
-        return alias_mappings
-
-    def _apply_metadata(node: dict | list, table_name: str, indices_stack: list[int], alias_map: dict[str, dict[str, str]], defaults_list: list[dict]) -> dict | list | None:
-        print(f"Processing node: {node}")
-        """
-        Recursively walk the node.
-        - If node is a list, enumerate and recurse on items.
-        - If node is a dict,
-            - first apply alias replacements (if in right table),
-            - then apply defaults (if they exist for this table),
-            - then possibly recurse deeper if there are sublists/dicts.
-        The 'indices_stack' tracks our position in lists.
-        :param node: The current node being processed
-        :param table_name: Name of the current table
-        :param indices_stack: Stack of current indices in nested lists
-        :param alias_map: Mapping of aliases to canonical keys
-        :param defaults_list: List of default values to apply
-        """
-        if isinstance(node, list):
-            for idx, item in enumerate(node):
-                if isinstance(item, (Mapping, Sequence)) and not isinstance(item, str):
-                    indices_stack.append(idx)
-                    _apply_metadata(item, table_name, indices_stack, alias_map, defaults_list)
-                    indices_stack.pop()
-            return node
-
-        if isinstance(node, dict):
-            # 1) Alias replacement (if alias_map says we're in the relevant table)
-            #    We only do alias replacement if table_name matches, and we're presumably dealing with items in that table.
-            keys, items = list(node.keys()), list(node.items())
-            if table_name in alias_map:  # then we'll build a list of changes to perform
-                changes = {}
-                for k in keys:
-                    for canonical, aliases in alias_map[table_name].items():
-                        if k in aliases:
-                            # move node[k] -> node[canonical], remove node[k]
-                            changes[k] = canonical
-                # for old_key, new_key in changes.items():
-                #     node[new_key] = node.pop(old_key)
-                node = {changes.get(k, k): _apply_metadata(node[k], table_name, indices_stack, alias_map, defaults_list) for k in keys}  # apply changes
-            items = list(node.items())
-            # 2) Apply defaults. We check each entry from defaults_list if it has something for 'table_name' as a dict of defaults.
-            for defaults in defaults_list:
-                if not isinstance(defaults, dict):
-                    logger.warning(f"Invalid defaults entry: {defaults}")
+                        if syn in data:
+                            syn_found = True
+                            if k in data:
+                                if type(data[k]) is not type(data[syn]):
+                                    warning(f"Both {k} and {syn} are present in data at {last_key}, but their types do not match")
+                                    continue
+                                warning(f"Both {k} and {syn} are present in data at {last_key}; joining them")
+                                data[k] = join(data[k], data[syn])
+                                del data[syn]
+                                continue
+                            data[k] = data[syn]
+                            del data[syn]
+                    if not syn_found:
+                        if k not in data:
+                            warning(f"Neither {k} nor any of its synonyms found in data at {last_key}")
                     continue
-                if table_name in defaults:
-                    table_defaults = defaults[table_name]
-                    if not isinstance(table_defaults, dict):
-                        logger.warning(f"Invalid defaults for table {table_name}")
-                        continue
-                    _fill_defaults(node, table_defaults, indices_stack)
-            return node
-        return node
+                warning(f"Invalid alias object list value: {v[0]} at {last_key}")
+                continue
+            warning(f"Invalid alias object value: {v} at {last_key}")
 
+        return data
 
-    def _fill_defaults(item: dict, default_dict: Any, indices_stack: list[int]) -> None:
+    def _apply_defaults(data: list[dict] | dict, defaults_obj: list[dict] | dict, indices: list[int] = [], last_key: str = "", silent: bool = True) -> Any:
         """
-        Overlays default values on an item, with dynamic substitution.
-        :param item: The item to overlay defaults on
-        :param default_dict: Dictionary of default values
+        Applies defaults to a data structure.
+        :param data: The data to process
+        :param defaults_obj: List of default values to apply
         :param indices_stack: Stack of current indices for substitution
+        :return: Dict mapping table names to {alias: canonical_key} mappings
         """
-        if not isinstance(default_dict, dict):
-            logger.warning(f"Invalid defaults dictionary: {default_dict}")
-            return
+        warning = logger.warning if not silent else lambda msg: None
 
-        for def_k, def_v in default_dict.items():
-            if def_k not in item:
-                item[def_k] = _render_substitutions(def_v, item, indices_stack)
+        if isinstance(data, list):
+            return [_apply_defaults(item, defaults_obj, indices + [i], last_key + f"[{i}]", silent) for i, item in enumerate(data)]
 
-    def _render_substitutions(val: Any, context: dict, indices: list[int]) -> Any:
+        if isinstance(defaults_obj, list):
+            for defaults_subobj in defaults_obj:
+                data = _apply_defaults(data, defaults_subobj, indices, last_key, silent)
+            return data
+
+        if not isinstance(defaults_obj, dict):
+            warning(f"Invalid defaults object: {defaults_obj} at {last_key}")
+            return data
+
+        if not isinstance(data, dict):
+            warning(f"Invalid data object: {data} at {last_key}")
+            return data
+
+        for k, v in defaults_obj.items():
+            if isinstance(v, dict):  # {a: {b: ...}}
+                if k not in data:
+                    data[k] = {}
+                data[k] = _apply_defaults(data[k], v, indices, last_key + f"[{k}]", silent)
+            elif isinstance(v, list):
+                if len(v) != 0 and isinstance(v[0], dict):  # {a: [{b: ...}, {c: ...}]}
+                    for i, _ in enumerate(data[k]):
+                        for vj in v:
+                            data[k][i] = _apply_defaults(data[k][i], vj, indices + [i], last_key + f"[{k}][{i}]", silent)
+                elif k not in data:
+                    data[k] = v
+            elif k not in data:
+                data[k] = v
+                if isinstance(v, str) and re.findall(r'\$\{([^\}]+)\}', v):
+                    data[k] = _render_substitutions(v, data, indices, last_key + f"[{k}]")
+        return data
+
+    def _render_substitutions(val: Any, context: dict, indices: list[int], last_key: str = "") -> Any:
         """
         Renders substitutions in a value using context and indices.
         :param val: Value to process substitutions in
@@ -719,32 +717,28 @@ def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
         if not isinstance(val, str):
             return val
 
-        pattern = re.compile(r'\$\{([^}]+)\}')
-
-        def _substitute(match: re.Match) -> str:
-            expr = match.group(1).strip()
+        patterns = re.finditer(r'\$\{([^\}]+)\}', val, re.IGNORECASE)
+        if not patterns:
+            return val
+        for pattern in patterns:
+            match = pattern.group(1).strip()
             try:
-                if expr.startswith("indices["):
-                    # Safely evaluate index expressions
-                    if not re.match(r'^indices\[\-?\d+\]$', expr):
-                        logger.warning(f"Invalid indices expression: {expr}")
-                        return ""
-                    return str(eval(expr, {"indices": indices}, {}))
-                return str(context.get(expr, ""))
+                replacement = str(eval(match, {"indices": indices} | context))
             except Exception as e:
-                logger.warning(f"Error in substitution '{expr}': {e!s}")
-                return ""
-
-        return pattern.sub(_substitute, val)
+                logger.warning(f"Error in substitution '{match}' at {last_key}: {e!s}")
+                replacement = ""
+            val = val.replace(pattern.group(0), replacement)
+        return val
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        if isinstance(data, str):
+            with open(data, 'r', encoding='utf-8') as f:
+                data = json.load(f)
     except json.JSONDecodeError as e:
-        logger.exception(f"Invalid JSON in {file_path}")
+        logger.exception(f"Invalid JSON in {data}")
         raise
     except FileNotFoundError:
-        logger.exception(f"File not found: {file_path}")
+        logger.exception(f"File not found: {data}")
         raise
 
     # Validate metadata structure
@@ -755,7 +749,9 @@ def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
         logger.warning(msg)
         return data
 
-    metadata = data.get("metadata", {})
+    if "metadata" not in data:
+        return data
+    metadata = data["metadata"]
     if not isinstance(metadata, dict):
         msg = f"metadata must be an object, got {type(metadata)}"
         if strict:
@@ -763,53 +759,17 @@ def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
         logger.warning(msg)
         return data
 
-    # Validate primary table
-    primary_key = metadata.get("primary_table")
-    if not primary_key:
-        msg = "metadata.primary_table is required"
-        if strict:
-            raise MetadataParsingError(msg)
-        logger.warning(msg)
-        return data
-
-    if not isinstance(primary_key, str):
-        msg = f"metadata.primary_table must be string, got {type(primary_key)}"
-        if strict:
-            raise MetadataParsingError(msg)
-        logger.warning(msg)
-        return data
-
-    if primary_key not in data:
-        msg = f"Primary table '{primary_key}' not found in data"
-        if strict:
-            raise MetadataParsingError(msg)
-        logger.warning(msg)
-        return data
-
     # Process aliases and defaults
     try:
-        alias_mappings = _build_alias_mappings(metadata.get("aliases", [])[0][primary_key])
-        table_defaults = metadata.get("defaults", [])
-
-        # Convert primary table to list format for consistent processing
-        main_data = data[primary_key]
-        if isinstance(main_data, dict):
-            main_data = [main_data]
-        elif not isinstance(main_data, list):
-            msg = f"Primary table must be list or dict, got {type(main_data)}"
-            if strict:
-                raise MetadataParsingError(msg)
-            logger.warning(msg)
-            return data
-
-        # Apply metadata transformations
-        main_data = _apply_metadata(main_data, primary_key, [], alias_mappings, table_defaults)
-
-        # Update the original data with processed version
-        if isinstance(data[primary_key], dict):
-            data[primary_key] = main_data[0]
-        else:
-            data[primary_key] = main_data
+        if "aliases" in metadata:
+            data = _apply_aliases(data, metadata["aliases"], silent = True)
+        if "defaults" in metadata:
+            data = _apply_defaults(data, metadata["defaults"], silent = True)
+            if "aliases" in metadata:
+                # missing keywords should only raise warnings if they're not filled in by defaults
+                # but we can't fill in defaults before we check for aliases, since that allows for data conflicts
+                # so we apply aliases while silencing warnings, apply defaults, then reapply aliases without silencing warnings
+                data = _apply_aliases(data, metadata["aliases"], silent = False)
 
         return data
 
@@ -819,3 +779,28 @@ def parse_json_with_metadata(file_path: str, strict: bool = True) -> dict:
             raise MetadataParsingError(msg) from e
         logger.exception(msg)
         return data
+
+class Table:
+    def __init__(self, data) -> None:
+        self.metadata = None
+        if isinstance(data, str):
+            with open(data, "r") as f:
+                data = json.load(f)
+        if "metadata" in data:
+            self.metadata = data["metadata"]
+            data = parse_json_with_metadata(data)
+            if "primary_table" in data["metadata"]:
+                if data["metadata"]["primary_table"] in data:
+                    data = data[data["metadata"]["primary_table"]]
+        self.data = data
+
+    @property
+    def schema_object(self) -> Any:
+        return schema_object(self.data)
+
+    @property
+    def schema_sketch(self) -> Any:
+        return compute_schema_sketch(self.data)
+
+    def save(self, path, filetype) -> None:
+        pass

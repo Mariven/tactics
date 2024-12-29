@@ -359,7 +359,6 @@ class TestSymbol:
             sym = Symbol()
         sym = Symbol('x') + Symbol('y')
         assert sym._anonymous
-        assert sym._symbol.startswith('a_')
         # Test operations with anonymous symbols
         expr = sym + 1
         assert expr(6, -1) == 6
@@ -713,5 +712,7 @@ class TestSymbol:
         # set extra_kwargs to False => raise TypeError if extraneous provided
         x = Symbol("x", config={"extra_kwargs": False})
         expr = x * 2
+        assert expr._arity == 1
+        assert expr._cfg['extra_kwargs'] is False
         with pytest.raises(ValueError):
             _ = expr(x=2, y=99)
